@@ -244,8 +244,6 @@ def fetch_feed(feed_def: dict) -> tuple[list[dict], list[dict]]:
                 except Exception as e:
                     log.debug("Entry parse error %s: %s", url, e)
 
-            log.info("Fetched %d articles from %s", len(articles), url)
-
             # ── Cache the result ───────────────────────────────────
             if ENABLE_CACHE and articles:
                 cache_set(cache_key, {"articles": articles})
@@ -269,6 +267,8 @@ def fetch_feed(feed_def: dict) -> tuple[list[dict], list[dict]]:
             log.warning("Error %s: %s (attempt %d/%d)", url, e, attempt + 1, FETCH_RETRIES)
 
         time.sleep(2 ** attempt)
+
+    log.info("Fetched %d articles from %s", len(articles), url)
 
     if not articles and not error_logged:
         errors.append({"url": url, "error": last_error or "Unknown error", "status": "error"})
