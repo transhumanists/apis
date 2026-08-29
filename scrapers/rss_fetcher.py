@@ -180,7 +180,9 @@ def fetch_feed(feed_def: dict) -> tuple[list[dict], list[dict]]:
             if len(resp.content) > MAX_ARTICLE_SIZE:
                 log.warning("Feed %s (%.1f MB) exceeds 1MB limit — truncating",
                            url, len(resp.content) / 1024 / 1024)
-                resp._content = resp.content[:MAX_ARTICLE_SIZE]
+                feed_bytes = resp.content[:MAX_ARTICLE_SIZE]
+            else:
+                feed_bytes = resp.content
 
             content_type = resp.headers.get("Content-Type", "").lower()
             if "html" in content_type and attempt < FETCH_RETRIES - 1:
@@ -189,7 +191,7 @@ def fetch_feed(feed_def: dict) -> tuple[list[dict], list[dict]]:
                 time.sleep(2)
                 continue
 
-            parsed = feedparser.parse(resp.content)
+            parsed = feedparser.parse(feed_bytes)
             if parsed.bozo and attempt < FETCH_RETRIES - 1:
                 log.warning("Bozo feed %s (attempt %d): %s",
                            url, attempt + 1, parsed.bozo_exception)
