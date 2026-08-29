@@ -19,10 +19,11 @@ _session_tmp = Path(tempfile.mkdtemp(prefix="rl_test_"))
 
 
 def _patch(src):
+    tmp_str = str(_session_tmp).replace("\\", "\\\\")
     return (
         src
-        .replace(ORIG_ROOT_DEF, f'ROOT = Path(r"{_session_tmp}")\nSTATE_FILE = ROOT / "state.json"')
-        .replace(ORIG_CACHE_DEF, f"CACHE_DIR = ROOT / 'cache'")
+        .replace(ORIG_ROOT_DEF, f'ROOT = Path(r"{tmp_str}")\nSTATE_FILE = ROOT / "state.json"')
+        .replace(ORIG_CACHE_DEF, "CACHE_DIR = ROOT / 'cache'")
     )
 
 
