@@ -95,6 +95,15 @@ Smoke tests use mocked HTTP responses — no live API calls.
 
 ---
 
+## 🔗 Related
+
+- 🧬 [transhumanists dashboard](https://transhumanists.github.io/) — live milestones + world map
+- 🎬 [FrenzyPenguin Media](https://neohiro.github.io/frenzypenguin-media/) — video deep-dives
+- 🌐 [neohiro.github.io](https://neohiro.github.io/) — security tooling
+- 💖 [Sponsor neohiro](https://github.com/sponsors/neohiro) — cover API costs
+
+---
+
 ## 📄 License
 
 MIT

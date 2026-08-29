@@ -1,0 +1,288 @@
+{
+  "_meta": {
+    "updated": "2026-08-29",
+    "purpose": "Single source of truth for all platforms integrated with neohiro/apis",
+    "usage": "Used by llm/score_milestone.py, scrapers/rss_fetcher.py, social/facebook_poster.py, webhooks/",
+    "note": "Add new platforms here. Each platform has: credentials, features, rate limits, docs, and a 'health' indicator."
+  },
+  "platforms": {
+    "github": {
+      "name": "GitHub",
+      "type": "vcs",
+      "api_base": "https://api.github.com",
+      "auth": "token",
+      "env_vars": ["GITHUB_TOKEN"],
+      "features": {
+        "repos": true,
+        "workflows": true,
+        "actions": true,
+        "secrets": false,
+        "discussions": true,
+        "releases": true,
+        "milestones": true
+      },
+      "rate_limits": {
+        "authenticated_rpm": 5000,
+        "unauthenticated_rpm": 60
+      },
+      "docs": "https://docs.github.com/rest",
+      "health_endpoint": "https://api.github.com/rate_limit",
+      "notes": "GITHUB_TOKEN required for workflow runs, repo listing, discussions."
+    },
+    "tailscale": {
+      "name": "Tailscale",
+      "type": "network",
+      "api_base": "https://api.tailscale.com/api/v2",
+      "auth": "bearer",
+      "env_vars": ["TAILSCALE_API_KEY"],
+      "features": {
+        "devices": true,
+        "acl": false,
+        "dns": false,
+        "routes": false,
+        "metrics": true
+      },
+      "rate_limits": {
+        "rpm": 1000
+      },
+      "docs": "https://tailscale.com/api",
+      "health_endpoint": "https://api.tailscale.com/api/v2/device",
+      "notes": "TAILSCALE_API_KEY from admin console. Needs read-only or metrics scope."
+    },
+    "openai": {
+      "name": "OpenAI",
+      "type": "llm",
+      "api_base": "https://api.openai.com/v1",
+      "auth": "bearer",
+      "env_vars": ["OPENAI_API_KEY"],
+      "features": {
+        "chat": true,
+        "completion": true,
+        "embeddings": true,
+        "vision": true,
+        "audio": false
+      },
+      "rate_limits": {
+        "rpm": 500,
+        "tpm": 150000,
+        "rpm_images": 50
+      },
+      "docs": "https://platform.openai.com/docs/api-reference",
+      "health_endpoint": "https://api.openai.com/v1/models",
+      "notes": "GPT-4o, GPT-4o-mini, GPT-4-turbo. Used as paid cascade when free tiers exhausted."
+    },
+    "anthropic": {
+      "name": "Anthropic",
+      "type": "llm",
+      "api_base": "https://api.anthropic.com/v1",
+      "auth": "x-api-key",
+      "env_vars": ["ANTHROPIC_API_KEY"],
+      "features": {
+        "chat": true,
+        "vision": true,
+        "extended_thinking": true
+      },
+      "rate_limits": {
+        "rpm": 50,
+        "tpd": 200000
+      },
+      "docs": "https://docs.anthropic.com/en/api",
+      "health_endpoint": "https://api.anthropic.com/v1/messages",
+      "notes": "Claude 3.5 Sonnet, Claude 3 Opus. Paid cascade fallback."
+    },
+    "groq": {
+      "name": "Groq",
+      "type": "llm",
+      "api_base": "https://api.groq.com/openai/v1",
+      "auth": "bearer",
+      "env_vars": ["GROQ_API_KEY"],
+      "features": {
+        "chat": true,
+        "completion": true,
+        "whisper": true
+      },
+      "rate_limits": {
+        "rpm": 30,
+        "tpm": 6000,
+        "rpd": 14400
+      },
+      "docs": "https://console.groq.com/docs/api",
+      "health_endpoint": "https://api.groq.com/openai/v1/models",
+      "notes": "Free tier: 14,400 requests/day. Llama 3.1 70B. Fastest inference."
+    },
+    "openrouter": {
+      "name": "OpenRouter",
+      "type": "llm",
+      "api_base": "https://openrouter.ai/api/v1",
+      "auth": "bearer",
+      "env_vars": ["OPENROUTER_API_KEY"],
+      "features": {
+        "chat": true,
+        "vision": true,
+        "aggregation": true
+      },
+      "rate_limits": {
+        "varies": "per model, see openrouter.ai/models"
+      },
+      "docs": "https://openrouter.ai/docs",
+      "health_endpoint": "https://openrouter.ai/api/v1/models",
+      "notes": "Aggregates many providers. :free tag gives credits. First $5 free."
+    },
+    "cerebras": {
+      "name": "Cerebras",
+      "type": "llm",
+      "api_base": "https://api.cerebras.ai/v1",
+      "auth": "bearer",
+      "env_vars": ["CEREBRAS_API_KEY"],
+      "features": {
+        "chat": true,
+        "completion": true
+      },
+      "rate_limits": {
+        "rpm": 10,
+        "tpm": 2000
+      },
+      "docs": "https://docs.cerebras.ai",
+      "health_endpoint": "https://api.cerebras.ai/v1/models",
+      "notes": "Free tier: 10 rpm. Llama 3.3 70B, qwen-2.5-72B. Exceptional speed."
+    },
+    "huggingface": {
+      "name": "HuggingFace",
+      "type": "llm",
+      "api_base": "https://router.huggingface.co/tgi/v1",
+      "auth": "bearer",
+      "env_vars": ["HF_TOKEN"],
+      "features": {
+        "chat": true,
+        "completion": true,
+        "embeddings": true,
+        "inference_endpoints": true
+      },
+      "rate_limits": {
+        "rpm": 30,
+        "tpm": 10000
+      },
+      "docs": "https://huggingface.co/docs/api-inference",
+      "health_endpoint": "https://huggingface.co/api/models",
+      "notes": "Free: 10K tokens/month. Good for Llama-3.2-3B and code models."
+    },
+    "cloudflare": {
+      "name": "Cloudflare",
+      "type": "infra",
+      "api_base": "https://api.cloudflare.com/client/v4",
+      "auth": "bearer",
+      "env_vars": ["CLOUDFLARE_API_TOKEN"],
+      "features": {
+        "workers_ai": true,
+        "kv": true,
+        "r2": false,
+        "dns": true,
+        "tunnels": true
+      },
+      "rate_limits": {
+        "rpm": 1200,
+        "rpd": 10000
+      },
+      "docs": "https://developers.cloudflare.com/api/",
+      "health_endpoint": "https://api.cloudflare.com/",
+      "notes": "Workers AI: 10K req/day free. Llama 3.1 8B, code models. Edge globally."
+    },
+    "youtube": {
+      "name": "YouTube",
+      "type": "social",
+      "api_base": "https://www.googleapis.com/youtube/v3",
+      "auth": "api_key",
+      "env_vars": ["YOUTUBE_API_KEY"],
+      "features": {
+        "channels": true,
+        "videos": true,
+        "search": true,
+        "analytics": false
+      },
+      "rate_limits": {
+        "quota": "10,000 units/day (free)",
+        "rpm": 180
+      },
+      "docs": "https://developers.google.com/youtube/v3",
+      "health_endpoint": "https://www.googleapis.com/youtube/v3/channels",
+      "notes": "Used for channel stats in dashboard cards. Free quota limited."
+    },
+    "facebook": {
+      "name": "Facebook Graph API",
+      "type": "social",
+      "api_base": "https://graph.facebook.com/v19.0",
+      "auth": "bearer",
+      "env_vars": ["FB_PAGE_ACCESS_TOKEN"],
+      "features": {
+        "page_posts": true,
+        "insights": false,
+        "messenger": false
+      },
+      "rate_limits": {
+        "hourly": "200 calls/hour per page"
+      },
+      "docs": "https://developers.facebook.com/docs/graph-api",
+      "health_endpoint": "https://graph.facebook.com/v19.0/me",
+      "notes": "FB_PAGE_ACCESS_TOKEN required. Used for milestone posts on neohiro page."
+    },
+    "opencode": {
+      "name": "OpenCode",
+      "type": "ide",
+      "api_base": "http://localhost:4096",
+      "auth": "none",
+      "env_vars": [],
+      "features": {
+        "sessions": true,
+        "file_read": true,
+        "file_write": true,
+        "bash": true,
+        "search": true,
+        "agent_spawn": true
+      },
+      "rate_limits": {
+        "local": true
+      },
+      "docs": "https://opencode.ai",
+      "health_endpoint": "http://localhost:4096/health",
+      "notes": "Local AI coding assistant. Integrated via opencode-hub. No external API needed."
+    },
+    "vercel": {
+      "name": "Vercel",
+      "type": "infra",
+      "api_base": "https://api.vercel.com/v1",
+      "auth": "bearer",
+      "env_vars": ["VERCEL_TOKEN"],
+      "features": {
+        "deployments": true,
+        "logs": true,
+        "secrets": true,
+        "domains": true
+      },
+      "rate_limits": {
+        "rpm": 5000
+      },
+      "docs": "https://vercel.com/docs/rest-api",
+      "health_endpoint": "https://api.vercel.com/v1/deployments",
+      "notes": "Used for wingman-hub deployment. VERCEL_TOKEN from vercel.com/account/tokens."
+    },
+    "render": {
+      "name": "Render",
+      "type": "infra",
+      "api_base": "https://api.render.com/v1",
+      "auth": "bearer",
+      "env_vars": ["RENDER_API_KEY"],
+      "features": {
+        "services": true,
+        "deploys": true,
+        "logs": true,
+        "cronjobs": true
+      },
+      "rate_limits": {
+        "rpm": 100
+      },
+      "docs": "https://render.com/docs/api",
+      "health_endpoint": "https://api.render.com/v1/services",
+      "notes": "Used for wingman-hub long-running processes. RENDER_API_KEY from dashboard."
+    }
+  }
+}
