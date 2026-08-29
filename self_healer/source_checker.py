@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 """
 Source Health Checker — self-healing
-Validates all RSS feed URLs in the catalog. Marks dead feeds.
-Suggests replacement feeds (uses Google News + Bing News search as fallback).
-Outputs feeds_health.json, updates sources.yaml.
+Validates RSS feed URLs. Checks known-dead feeds plus a 30% spot-check sample.
+Suggests replacement feeds from a known-good library (cached per-category to avoid races).
+Outputs feeds_health.json.
 """
-import json, time, datetime as dt, pathlib, logging, re, sys
+import json
+import logging
+import pathlib
+import re
+import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
 
 import feedparser
 import requests
@@ -15,9 +21,7 @@ HERE = pathlib.Path(__file__).parent
 ROOT = HERE.parent
 HEALTH_OUT = ROOT / "data" / "feeds_health.json"
 DEAD_FEEDS = ROOT / "data" / "dead_feeds.json"
-SOURCES_FILE = HERE / "sources.yaml"
 
-# A small library of known-good replacement feeds per category
 REPLACEMENTS: dict[str, list[str]] = {
     "Biotechnology": [
         "https://www.nature.com/subjects/biotechnology.rss",
@@ -70,11 +74,6 @@ REPLACEMENTS: dict[str, list[str]] = {
     ],
 }
 
-
-# ---- Logging ----
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-log = logging.getLogger("source_checker")
-
 HEADERS = {
     "User-Agent": (
         "transhumanists-milestone-tracker/1.0 "
@@ -85,16 +84,22 @@ HEADERS = {
 TIMEOUT = 10
 MAX_WORKERS = 16
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+log = logging.getLogger("source_checker")
+
+_REPLACEMENT_CACHE: dict[str, str] = {}
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
 
 def check_url(url: str) -> dict:
-    """HEAD + GET probe. Returns health dict."""
-    result = {"url": url, "status": "unknown", "http": 0, "items": 0, "checked_at": dt.datetime.utcnow().isoformat() + "Z"}
+    result = {"url": url, "status": "unknown", "http": 0, "items": 0, "checked_at": _utc_now()}
     try:
-        # Try HEAD first
         r = requests.head(url, headers=HEADERS, timeout=TIMEOUT, allow_redirects=True)
         result["http"] = r.status_code
         if r.status_code in (200, 301, 302):
-            # Try GET
             r = requests.get(url, headers=HEADERS, timeout=TIMEOUT, stream=False)
             result["http"] = r.status_code
             if r.status_code == 200:
@@ -121,40 +126,36 @@ def check_url(url: str) -> dict:
 
 
 def find_replacement(category: str, dead_url: str) -> str | None:
-    """Try replacement feeds from the known-good library."""
+    if category in _REPLACEMENT_CACHE:
+        cached = _REPLACEMENT_CACHE[category]
+        if cached != dead_url:
+            return cached
     for url in REPLACEMENTS.get(category, []):
         if url == dead_url:
             continue
         result = check_url(url)
         if result["status"] == "healthy":
+            _REPLACEMENT_CACHE[category] = url
             return url
         time.sleep(0.5)
     return None
 
 
-# ---- Main ----
 def main():
-    # Load dead feeds from rss_fetcher if available
     dead: list[dict] = []
     if DEAD_FEEDS.exists():
         dead = json.loads(DEAD_FEEDS.read_text())
         log.info("Loaded %d dead feeds from previous run", len(dead))
 
-    # We don't recheck all feeds each run (saves time); we only recheck known-dead ones
-    # and spot-check a sample of all-feeds.
-    # For full-mode, load FEEDS list from rss_fetcher and check.
     try:
-        from scrapers.rss_fetcher import FEEDS  # type: ignore
+        from scrapers.rss_fetcher import FEEDS
     except Exception:
         FEEDS = []
 
     urls_to_check: list[dict] = []
-
-    # 1) All dead feeds from previous run
     for d in dead:
         urls_to_check.append({"url": d["url"], "category": d.get("category", "Unknown"), "is_dead": True})
 
-    # 2) Sample 30% of healthy feeds (spot-check)
     if FEEDS:
         import random
         random.seed(42)
@@ -163,7 +164,8 @@ def main():
             urls_to_check.append({"url": f["url"], "category": f.get("category", "Unknown"), "is_dead": False})
 
     log.info("Checking %d feeds (%d dead, %d spot-check)",
-             len(urls_to_check), sum(1 for u in urls_to_check if u.get("is_dead")),
+             len(urls_to_check),
+             sum(1 for u in urls_to_check if u.get("is_dead")),
              sum(1 for u in urls_to_check if not u.get("is_dead")))
 
     results: list[dict] = []
@@ -176,9 +178,9 @@ def main():
                 r = future.result()
                 r["category"] = u["category"]
                 results.append(r)
-                # If dead, find a replacement
                 if r["status"] != "healthy":
-                    log.warning("Dead feed: %s (%s) — looking for replacement in %s", u["url"], r["status"], u["category"])
+                    log.warning("Dead feed: %s (%s) — looking for replacement in %s",
+                               u["url"], r["status"], u["category"])
                     rep = find_replacement(u["category"], u["url"])
                     if rep:
                         replaced.append({
@@ -191,9 +193,8 @@ def main():
             except Exception as e:
                 log.error("Error checking %s: %s", u["url"], e)
 
-    # Write health report
     HEALTH_OUT.write_text(json.dumps({
-        "last_update": dt.datetime.utcnow().isoformat() + "Z",
+        "last_update": _utc_now(),
         "checked": len(urls_to_check),
         "results": results,
         "replaced": replaced,
@@ -204,7 +205,7 @@ def main():
     if replaced:
         log.info("Suggested replacements:")
         for r in replaced:
-            print(f"  {r['category']}: {r['old_url']}  →  {r['new_url']}")
+            print(f"  {r['category']}: {r['old_url']}  ->  {r['new_url']}")
 
 
 if __name__ == "__main__":

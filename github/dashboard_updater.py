@@ -4,9 +4,11 @@ Dashboard Updater — transhumanists/apis/github
 Reads processed milestone/event/activity data and commits it to:
   - transhumanists/milestones (data/)
   - transhumanists/transhumanists.github.io (data/)
-Uses the GitHub API (not git) to avoid git conflicts.
+Uses the GitHub Contents API to avoid git conflicts.
 """
-import json, os, sys, pathlib, datetime as dt, logging, base64
+import json, os, sys, pathlib, logging, base64, time
+from datetime import datetime, timezone, timedelta
+from typing import Optional
 
 try:
     import requests
@@ -22,30 +24,43 @@ REPOS = [
     ("transhumanists", "transhumanists.github.io"),
 ]
 API = "https://api.github.com"
-
-HEADERS = {
-    "Authorization": f"token {TOKEN}",
-    "Accept": "application/vnd.github+json",
-    "Content-Type": "application/json",
-}
+MAX_RETRIES = 3
+RETRY_BACKOFF = 2.0
 
 
-def api_get(path: str) -> dict:
-    resp = requests.get(f"{API}/{path}", headers=HEADERS, timeout=15)
-    resp.raise_for_status()
-    return resp.json()
+def _headers() -> dict:
+    return {
+        "Authorization": f"token {TOKEN}",
+        "Accept": "application/vnd.github+json",
+        "Content-Type": "application/json",
+    }
 
 
-def api_put(path: str, data: dict) -> dict:
-    resp = requests.put(f"{API}/{path}", headers=HEADERS, json=data, timeout=15)
-    resp.raise_for_status()
-    return resp.json()
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def get_file_sha(owner: str, repo: str, path: str) -> str | None:
+def _retry_request(method: str, url: str, **kwargs) -> requests.Response:
+    last_err = ""
+    for attempt in range(MAX_RETRIES):
+        try:
+            resp = requests.request(method, url, timeout=kwargs.pop("timeout", 20), **kwargs)
+            if resp.status_code < 500:
+                return resp
+            last_err = f"HTTP {resp.status_code}"
+            log.warning("Transient error %s (attempt %d/%d): %s", url, attempt + 1, MAX_RETRIES, last_err)
+        except requests.RequestException as e:
+            last_err = str(e)
+            log.warning("Request error %s (attempt %d/%d): %s", url, attempt + 1, MAX_RETRIES, last_err)
+        if attempt < MAX_RETRIES - 1:
+            time.sleep(RETRY_BACKOFF ** attempt)
+    raise requests.RequestException(f"Failed after {MAX_RETRIES} retries: {last_err}")
+
+
+def get_file_sha(owner: str, repo: str, path: str) -> Optional[str]:
     try:
-        r = requests.get(f"{API}/repos/{owner}/{repo}/contents/{path}",
-                         headers=HEADERS, timeout=10)
+        r = _retry_request("GET", f"{API}/repos/{owner}/{repo}/contents/{path}",
+                           headers=_headers())
         if r.status_code == 200:
             return r.json().get("sha")
     except Exception:
@@ -63,15 +78,17 @@ def upsert_file(owner: str, repo: str, path: str, content: bytes, message: str) 
     if sha:
         payload["sha"] = sha
     try:
-        resp = requests.put(
+        resp = _retry_request(
+            "PUT",
             f"{API}/repos/{owner}/{repo}/contents/{path}",
-            headers=HEADERS, json=payload, timeout=20
+            headers=_headers(),
+            json=payload,
         )
         if resp.status_code in (200, 201):
             log.info("Updated %s/%s/%s", owner, repo, path)
             return True
         elif resp.status_code == 409:
-            log.warning("Conflict on %s/%s — skipping", owner, repo, path)
+            log.warning("Conflict on %s/%s/%s — skipping", owner, repo, path)
             return False
         else:
             log.error("Failed %s/%s/%s: HTTP %d — %s", owner, repo, path,
@@ -87,7 +104,7 @@ def generate_activity() -> dict:
     """Generate 30-day activity from recent milestones.json."""
     ms_path = pathlib.Path(__file__).parent.parent / "data" / "milestones.json"
     days = []
-    today = dt.datetime.utcnow()
+    today = datetime.now(timezone.utc)
     spikes = []
 
     if ms_path.exists():
@@ -100,11 +117,10 @@ def generate_activity() -> dict:
                     if d:
                         counts[d] = counts.get(d, 0) + 1
             for i in range(29, -1, -1):
-                d = today - dt.timedelta(days=i)
+                d = today - timedelta(days=i)
                 date_str = d.strftime("%Y-%m-%d")
                 count = counts.get(date_str, 0)
                 days.append({"date": date_str, "count": count})
-            # Find spikes
             for d in days:
                 if d["count"] >= 15:
                     spikes.append({"date": d["date"], "count": d["count"],
@@ -112,18 +128,17 @@ def generate_activity() -> dict:
         except Exception as e:
             log.warning("Could not parse milestones for activity: %s", e)
 
-    # Fill missing days with sample noise
     if not days:
         import random
         random.seed(int(today.timestamp()) // 86400)
         for i in range(29, -1, -1):
-            d = today - dt.timedelta(days=i)
+            d = today - timedelta(days=i)
             dow = d.weekday()
             base = [3, 5, 8, 12, 14, 9, 6][dow]
             days.append({"date": d.strftime("%Y-%m-%d"), "count": base + random.randint(0, 5)})
 
     return {
-        "last_update": dt.datetime.utcnow().isoformat() + "Z",
+        "last_update": _utc_now(),
         "days": days,
         "spikes": spikes,
     }
@@ -152,7 +167,7 @@ def main():
     # Generate activity
     activity = generate_activity()
 
-    ts = dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     commit_msg = f"chore(milestones): auto-update {ts}"
 
     for owner, repo in REPOS:

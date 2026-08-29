@@ -98,9 +98,29 @@ Smoke tests use mocked HTTP responses — no live API calls.
 ## 🔗 Related
 
 - 🧬 [transhumanists dashboard](https://transhumanists.github.io/) — live milestones + world map
+- 🗺️ [neohiro/worldmap](https://github.com/neohiro/worldmap) — world map mainframe with 5 data dimensions (PROGRESS / EVENTS / AERIAL / ORBITAL / IDENTITY)
+- 🤖 [neohiro/LLM](https://github.com/neohiro/LLM) — free LLM knowledge base + router (private)
 - 🎬 [FrenzyPenguin Media](https://neohiro.github.io/frenzypenguin-media/) — video deep-dives
-- 🌐 [neohiro.github.io](https://neohiro.github.io/) — security tooling
+- 🌐 [neohiro.github.io](https://neohiro.github.io/) — main site
 - 💖 [Sponsor neohiro](https://github.com/sponsors/neohiro) — cover API costs
+
+---
+
+## 🤖 LLM tools manifest
+
+Every deterministic tool in this repo has a JSON contract in
+`../neohiro-llm/data/apis_tools_manifest.json`. The LLM uses this to
+know which script to call for a given question. Every tool:
+
+- Is **stateless** (no LLM calls inside)
+- Accepts `--key value` or stdin JSON
+- Emits one JSON object to stdout
+- Has `when` + `where` on every record
+- Is **cache-first** (never makes unnecessary upstream calls)
+- Respects free-tier rate limits (backoff on 429)
+
+The manifest is the **single source of truth** for the LLM's tool-calling
+context. Update it when adding or changing a tool.
 
 ---
 

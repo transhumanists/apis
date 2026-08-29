@@ -37,6 +37,21 @@ dashboard_updater = importlib.import_module("github.dashboard_updater")
 
 
 class TestRssFetcher(unittest.TestCase):
+
+    def setUp(self):
+        self.patches = []
+        # Patch rate_limit calls so rss_fetcher tests don't touch the real budget
+        self.patches.append(patch.object(rss_fetcher, "check_and_consume", lambda p: MagicMock(allowed=True, retry_after=0)))
+        self.patches.append(patch.object(rss_fetcher, "record_response", lambda p, s, e="": None))
+        self.patches.append(patch.object(rss_fetcher, "cache_get", lambda k, **kw: None))
+        self.patches.append(patch.object(rss_fetcher, "cache_set", lambda k, v=None, **kw: None))
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+
     def test_feeds_is_list(self):
         self.assertIsInstance(rss_fetcher.FEEDS, list)
         self.assertGreater(len(rss_fetcher.FEEDS), 50)

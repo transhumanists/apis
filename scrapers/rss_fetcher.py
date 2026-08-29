@@ -3,16 +3,28 @@
 RSS Fetcher — transhumanists/apis
 Scrapes 80+ RSS feeds across 7 categories, outputs articles.json.
 Self-heals broken feeds on next run via source_checker.py.
+
+Rate-limiting: Every upstream call goes through rate_limit.check_and_consume()
+to stay within the free-tier budget of every host. Cached feeds (within
+`rss_generic.cache_ttl`) are served from disk instead of re-fetched.
 """
-import json, time, hashlib, datetime as dt, logging, pathlib, sys
+import hashlib
+import json
+import logging
+import pathlib
+import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Optional
+from datetime import datetime, timezone
 
 import feedparser
 import requests
 from bs4 import BeautifulSoup
 
-# ---- Config ----
+# Make `apis` importable so we can use the rate_limit module
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
+from rate_limit import check_and_consume, record_response, cache_get, cache_set
+
 OUT_FILE = pathlib.Path(__file__).parent.parent / "data" / "articles.json"
 OUT_FILE.parent.mkdir(exist_ok=True)
 
@@ -26,12 +38,13 @@ HEADERS = {
 }
 
 TIMEOUT = 15
-MAX_WORKERS = 20
+MAX_WORKERS = 6  # reduced from 20 — too many parallel requests triggers RSS host 429s
 FETCH_RETRIES = 2
+MAX_ARTICLE_SIZE = 1024 * 1024
+MAX_ARTICLES_PER_FEED = 50
+ENABLE_CACHE = True  # set False to force fresh fetch
 
-# ---- Feeds (80+ sources across 7 categories) ----
 FEEDS: list[dict] = [
-    # Biotechnology
     {"url": "https://www.nature.com/nbt.rss", "category": "Biotechnology", "weight": 3},
     {"url": "https://www.biorxiv.org/rss/all.xml", "category": "Biotechnology", "weight": 2},
     {"url": "https://www.sciencedirect.com/science/article/feed/atom", "category": "Biotechnology", "weight": 2},
@@ -42,7 +55,6 @@ FEEDS: list[dict] = [
     {"url": "https://www.statnews.com/category/science/feed/", "category": "Biotechnology", "weight": 2},
     {"url": "https://feeds.feedburner.com/genomeweb/", "category": "Biotechnology", "weight": 1},
     {"url": "https://www.the-scientist.com/rss", "category": "Biotechnology", "weight": 2},
-    # Computing & AGI
     {"url": "https://arxiv.org/rss/cs.AI", "category": "Computing & AGI", "weight": 3},
     {"url": "https://arxiv.org/rss/cs.LG", "category": "Computing & AGI", "weight": 3},
     {"url": "https://arxiv.org/rss/cs.CL", "category": "Computing & AGI", "weight": 3},
@@ -55,7 +67,6 @@ FEEDS: list[dict] = [
     {"url": "https://www.anthropic.com/news.rss", "category": "Computing & AGI", "weight": 3},
     {"url": "https://huggingface.co/blog/feed.xml", "category": "Computing & AGI", "weight": 2},
     {"url": "https://blog.google/technology/ai/rss/", "category": "Computing & AGI", "weight": 3},
-    # Quantum Physics
     {"url": "https://phys.org/rss-feed/quantum-physics/", "category": "Quantum Physics", "weight": 3},
     {"url": "https://www.sciencenews.org/feeds/quantum-computing/topstories", "category": "Quantum Physics", "weight": 3},
     {"url": "https://arxiv.org/rss/quant-ph", "category": "Quantum Physics", "weight": 3},
@@ -63,7 +74,6 @@ FEEDS: list[dict] = [
     {"url": "https://www.quantamagazine.org/feed/", "category": "Quantum Physics", "weight": 3},
     {"url": "https://www.scientificamerican.com/feed/", "category": "Quantum Physics", "weight": 2},
     {"url": "https://www.technologyreview.com/topic/quantum-computing/feed", "category": "Quantum Physics", "weight": 2},
-    # Renewable Energy
     {"url": "https://phys.org/rss-feed/energy-and-fuels/", "category": "Energy", "weight": 3},
     {"url": "https://www.sciencedaily.com/rss/matter_energy/fusion.rss", "category": "Energy", "weight": 3},
     {"url": "https://ieeexplore.ieee.org/rss/recent.xhtml", "category": "Energy", "weight": 2},
@@ -74,7 +84,6 @@ FEEDS: list[dict] = [
     {"url": "https://PV-magazine.com/feed/", "category": "Energy", "weight": 1},
     {"url": "https://www.reuters.com/energy.rss", "category": "Energy", "weight": 3},
     {"url": "https://wwwITER.org/news/feeds", "category": "Energy", "weight": 3},
-    # Cybersecurity
     {"url": "https://feeds.feedburner.com/TheHackersNews", "category": "Cybersecurity", "weight": 3},
     {"url": "https://www.schneier.com/feed/atom/", "category": "Cybersecurity", "weight": 2},
     {"url": "https://krebsonsecurity.com/feed/", "category": "Cybersecurity", "weight": 3},
@@ -86,7 +95,6 @@ FEEDS: list[dict] = [
     {"url": "https://arstechnica.com/security/feed/", "category": "Cybersecurity", "weight": 2},
     {"url": "https://www.securityweek.com/feed/", "category": "Cybersecurity", "weight": 2},
     {"url": "https://unit42.paloaltonetworks.com/feed/", "category": "Cybersecurity", "weight": 2},
-    # Spaceflight
     {"url": "https://spacenews.com/feed/", "category": "Spaceflight", "weight": 3},
     {"url": "https://www.space.com/feeds/all/", "category": "Spaceflight", "weight": 3},
     {"url": "https://www.nasa.gov/rss/dyn/breaking_news.rss", "category": "Spaceflight", "weight": 3},
@@ -98,7 +106,6 @@ FEEDS: list[dict] = [
     {"url": "https://www.nasaspaceflight.com/feed/", "category": "Spaceflight", "weight": 3},
     {"url": "https://www.spacex.com/feed/", "category": "Spaceflight", "weight": 3},
     {"url": "https://blogs.nasa.gov/feed/rss/", "category": "Spaceflight", "weight": 2},
-    # Military & Defense
     {"url": "https://www.defensenews.com/feed/", "category": "Defense", "weight": 2},
     {"url": "https://www.janes.com/defence-news/rss", "category": "Defense", "weight": 3},
     {"url": "https://www.reuters.com/world/rss", "category": "Defense", "weight": 2},
@@ -111,7 +118,6 @@ FEEDS: list[dict] = [
     {"url": "https://www.criticalthreats.org/feed", "category": "Defense", "weight": 2},
     {"url": "https://www.cna.org/news-analysis/rss", "category": "Defense", "weight": 2},
     {"url": "https://www.thedrive.com/the-war-zone/feed", "category": "Defense", "weight": 2},
-    # Intel / OSINT
     {"url": "https://www.bellingcat.com/feed/", "category": "Defense", "weight": 3},
     {"url": "https://www.osintdojo.com/blog/rss.xml", "category": "Defense", "weight": 2},
     {"url": "https://intelnews.org/feed/", "category": "Defense", "weight": 2},
@@ -120,7 +126,6 @@ FEEDS: list[dict] = [
 ]
 
 
-# ---- Logging ----
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -132,39 +137,78 @@ logging.basicConfig(
 log = logging.getLogger("rss_fetcher")
 
 
-# ---- Fetch a single feed ----
-def fetch_feed(feed_def: dict) -> list[dict]:
+def fetch_feed(feed_def: dict) -> tuple[list[dict], list[dict]]:
     url = feed_def["url"]
     category = feed_def["category"]
     weight = feed_def.get("weight", 1)
     articles: list[dict] = []
     errors: list[dict] = []
+    error_logged = False
+    last_error = ""
+
+    # ── Cache check (cache-first policy) ──────────────────────────────
+    cache_key = hashlib.sha256(url.encode()).hexdigest()[:32]
+    if ENABLE_CACHE:
+        cached = cache_get(cache_key, max_age_seconds=3600)  # 1h TTL for RSS
+        if cached is not None:
+            log.info("Cache hit for %s (%d articles)", url, len(cached.get("articles", [])))
+            return cached.get("articles", []), []
+        error_cache = cache_get(f"error_{cache_key}", max_age_seconds=300)
+        if error_cache is not None and len(error_cache) > 0:
+            log.info("Cache: skipping feed with recent error: %s", url)
+            return [], [{"url": url, "error": "recent_cache_error", "status": "skipped_cache"}]
+
+    # ── Rate-limit check ─────────────────────────────────────────────
+    res = check_and_consume("rss_generic")
+    if not res.allowed:
+        log.warning("RSS budget exhausted (retry in %ds) — skipping: %s", res.retry_after, url)
+        return [], [{"url": url, "error": f"rate_limit: retry in {res.retry_after}s", "status": "skipped"}]
 
     for attempt in range(FETCH_RETRIES):
         try:
             resp = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
+            record_response("rss_generic", resp.status_code)
+
+            if resp.status_code == 429:
+                log.warning("RSS 429 %s (attempt %d) — backing off %ds",
+                            url, attempt + 1, res.retry_after)
+                time.sleep(min(res.retry_after, 60))
+                continue
+
             resp.raise_for_status()
+
+            if len(resp.content) > MAX_ARTICLE_SIZE:
+                log.warning("Feed %s (%.1f MB) exceeds 1MB limit — truncating",
+                           url, len(resp.content) / 1024 / 1024)
+                resp._content = resp.content[:MAX_ARTICLE_SIZE]
+
             content_type = resp.headers.get("Content-Type", "").lower()
             if "html" in content_type and attempt < FETCH_RETRIES - 1:
-                log.warning("HTML returned for RSS feed %s (attempt %d), retrying", url, attempt + 1)
+                log.warning("HTML returned for RSS feed %s (attempt %d) — retrying",
+                           url, attempt + 1)
                 time.sleep(2)
                 continue
 
             parsed = feedparser.parse(resp.content)
             if parsed.bozo and attempt < FETCH_RETRIES - 1:
-                log.warning("Bozo feed %s (attempt %d): %s", url, attempt + 1, parsed.bozo_exception)
+                log.warning("Bozo feed %s (attempt %d): %s",
+                           url, attempt + 1, parsed.bozo_exception)
                 time.sleep(1)
                 continue
 
-            for entry in parsed.entries[:50]:
+            feed_title = (
+                parsed.feed.get("title") if getattr(parsed, "feed", None) else url
+            )
+
+            for entry in list(parsed.entries)[:MAX_ARTICLES_PER_FEED]:
                 try:
-                    link = getattr(entry, "link", None) or getattr(entry, "id", "")
+                    link = getattr(entry, "link", None) or getattr(entry, "id", "") or ""
                     article_id = hashlib.sha256(link.encode()).hexdigest()[:16]
 
                     published = None
-                    if hasattr(entry, "published_parsed") and entry.published_parsed:
+                    if getattr(entry, "published_parsed", None):
                         try:
-                            published = dt.datetime.utcnow().strftime("%Y-%m-%d")
+                            published = datetime.now(timezone.utc).strftime("%Y-%m-%d")
                         except Exception:
                             pass
 
@@ -175,7 +219,6 @@ def fetch_feed(feed_def: dict) -> list[dict]:
                     )
                     soup = BeautifulSoup(raw_summary, "lxml")
                     summary_text = soup.get_text(separator=" ", strip=True)[:600]
-
                     title = getattr(entry, "title", "[no title]") or "[no title]"
 
                     articles.append({
@@ -183,38 +226,59 @@ def fetch_feed(feed_def: dict) -> list[dict]:
                         "title": title.strip(),
                         "summary": summary_text,
                         "url": link,
-                        "source": parsed.feed.get("title", url),
+                        "source": feed_title or url,
                         "category": category,
                         "weight": weight,
-                        "published": published or dt.datetime.utcnow().strftime("%Y-%m-%d"),
-                        "fetched_at": dt.datetime.utcnow().isoformat() + "Z",
+                        "published": (
+                            published
+                            or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                        ),
+                        "fetched_at": (
+                            datetime.now(timezone.utc)
+                            .isoformat()
+                            .replace("+00:00", "Z")
+                        ),
                     })
                 except Exception as e:
-                    log.debug("Error parsing entry from %s: %s", url, e)
+                    log.debug("Entry parse error %s: %s", url, e)
 
             log.info("Fetched %d articles from %s", len(articles), url)
-            return articles
+
+            # ── Cache the result ───────────────────────────────────
+            if ENABLE_CACHE and articles:
+                cache_set(cache_key, {"articles": articles})
+                log.debug("Cached %d articles for %s", len(articles), url)
+
+            return articles, errors
 
         except requests.Timeout:
-            log.warning("Timeout fetching %s (attempt %d/%d)", url, attempt + 1, FETCH_RETRIES)
+            last_error = "Timeout"
+            log.warning("Timeout %s (attempt %d/%d)", url, attempt + 1, FETCH_RETRIES)
         except requests.HTTPError as e:
-            log.warning("HTTP %d for %s (attempt %d/%d)", e.response.status_code, url, attempt + 1, FETCH_RETRIES)
-            if e.response.status_code == 404:
-                errors.append({"url": url, "error": "HTTP 404", "status": "dead"})
+            status = e.response.status_code
+            last_error = f"HTTP {status}"
+            log.warning("HTTP %d %s (attempt %d/%d)", status, url, attempt + 1, FETCH_RETRIES)
+            if status == 404:
+                errors.append({"url": url, "error": last_error, "status": "dead"})
+                error_logged = True
                 break
         except requests.RequestException as e:
-            log.warning("Error fetching %s: %s (attempt %d/%d)", url, e, attempt + 1, FETCH_RETRIES)
+            last_error = str(e)
+            log.warning("Error %s: %s (attempt %d/%d)", url, e, attempt + 1, FETCH_RETRIES)
 
         time.sleep(2 ** attempt)
 
-    errors.append({"url": url, "error": str(e), "status": "error"})
-    return articles
+    if not articles and not error_logged:
+        errors.append({"url": url, "error": last_error or "Unknown error", "status": "error"})
+        if ENABLE_CACHE:
+            cache_set(f"error_{cache_key}", {"error": last_error})
+
+    return articles, errors
 
 
-# ---- Main ----
 def main():
     log.info("Starting RSS fetch — %d feeds across %d categories",
-             len(FEEDS), len(set(f["category"] for f in FEEDS)))
+             len(FEEDS), len({f["category"] for f in FEEDS}))
 
     all_articles: list[dict] = []
     dead_feeds: list[dict] = []
@@ -225,15 +289,15 @@ def main():
         for future in as_completed(futures):
             feed_def = futures[future]
             try:
-                articles = future.result()
+                articles, errors = future.result()
                 all_articles.extend(articles)
+                dead_feeds.extend(errors)
             except Exception as e:
-                log.error("Unhandled error for %s: %s", feed_def["url"], e)
+                log.error("Unhandled exception for %s: %s", feed_def["url"], e)
                 dead_feeds.append({"url": feed_def["url"], "error": str(e), "status": "exception"})
 
     elapsed = time.time() - start
 
-    # Deduplicate by ID
     seen: set[str] = set()
     unique: list[dict] = []
     for a in all_articles:
@@ -242,7 +306,7 @@ def main():
             unique.append(a)
 
     output = {
-        "last_update": dt.datetime.utcnow().isoformat() + "Z",
+        "last_update": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "feeds_total": len(FEEDS),
         "feeds_dead": dead_feeds,
         "articles_total": len(all_articles),
@@ -252,13 +316,8 @@ def main():
     }
 
     OUT_FILE.write_text(json.dumps(output, indent=2, ensure_ascii=False))
-    log.info(
-        "Done. %d unique articles from %d feeds in %.1fs. Dead: %d",
-        len(unique), len(FEEDS), elapsed, len(dead_feeds)
-    )
-
-    # Echo for GitHub Actions output
-    print(f"::set-output-name=count::{len(unique)}")
+    log.info("Done. %d unique from %d feeds in %.1fs. Dead: %d",
+             len(unique), len(FEEDS), elapsed, len(dead_feeds))
 
     if dead_feeds:
         dead_path = pathlib.Path(__file__).parent.parent / "data" / "dead_feeds.json"
