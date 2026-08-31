@@ -4,4 +4,4 @@ requests>=2.34.2
 feedparser>=6.0.14
 beautifulsoup4>=4.11
 lxml>=6.1.2
-psycopg2-binary>=2.9
+psycopg2-binary>=2.9.12
