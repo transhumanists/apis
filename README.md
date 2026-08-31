@@ -28,6 +28,8 @@ It scrapes 80+ RSS feeds, runs them through an LLM to extract structured milesto
 | `social/facebook_poster.py` | Posts daily milestone digest to [facebook.com/transhumanistsBE](https://facebook.com/transhumanistsBE) via Meta Graph API |
 | `github/dashboard_updater.py` | Commits updated data to `transhumanists/milestones` and `transhumanists/transhumanists.github.io` via GitHub API |
 
+> **Note:** `data/platform_registry.json` has moved to [`neohiro/apis/src/registry.json`](https://github.com/neohiro/apis). See `data/DEPRECATED_REGISTRY_MOVED.md`.
+
 ### Scheduled Execution
 
 The `transhumanists/milestones` repo contains a GitHub Action that runs the pipeline every 6 hours:
@@ -100,7 +102,7 @@ Smoke tests use mocked HTTP responses — no live API calls.
 - 🧬 [transhumanists dashboard](https://transhumanists.github.io/) — live milestones + world map
 - 🗺️ [neohiro/worldmap](https://github.com/neohiro/worldmap) — world map mainframe with 5 data dimensions (PROGRESS / EVENTS / AERIAL / ORBITAL / IDENTITY)
 - 🤖 [neohiro/LLM](https://github.com/neohiro/LLM) — free LLM knowledge base + router (private)
-- 🎬 [FrenzyPenguin Media](https://neohiro.github.io/frenzypenguin-media/) — video deep-dives
+- 🎬 [FrenzyPenguin Media](https://frenzypenguin-media.github.io/) — video deep-dives
 - 🌐 [neohiro.github.io](https://neohiro.github.io/) — main site
 - 💖 [Sponsor neohiro](https://github.com/sponsors/neohiro) — cover API costs
 
