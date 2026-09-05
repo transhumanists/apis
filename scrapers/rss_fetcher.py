@@ -146,6 +146,9 @@ def fetch_feed(feed_def: dict) -> tuple[list[dict], list[dict]]:
     errors: list[dict] = []
     error_logged = False
     last_error = ""
+    now_utc = datetime.now(timezone.utc)
+    today_str = now_utc.strftime("%Y-%m-%d")
+    now_iso = now_utc.isoformat().replace("+00:00", "Z")
 
     # ── Cache check (cache-first policy) ──────────────────────────────
     cache_key = hashlib.sha256(url.encode()).hexdigest()[:32]
@@ -208,6 +211,7 @@ def fetch_feed(feed_def: dict) -> tuple[list[dict], list[dict]]:
                     link = getattr(entry, "link", None) or getattr(entry, "id", "") or ""
                     article_id = hashlib.sha256(link.encode()).hexdigest()[:16]
 
+                    published = ""
                     pp = getattr(entry, "published_parsed", None)
                     if pp:
                         with suppress(Exception):
@@ -230,15 +234,8 @@ def fetch_feed(feed_def: dict) -> tuple[list[dict], list[dict]]:
                         "source": feed_title or url,
                         "category": category,
                         "weight": weight,
-                        "published": (
-                            published
-                            or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                        ),
-                        "fetched_at": (
-                            datetime.now(timezone.utc)
-                            .isoformat()
-                            .replace("+00:00", "Z")
-                        ),
+                        "published": (published or today_str),
+                        "fetched_at": now_iso,
                     })
                 except Exception as e:
                     log.debug("Entry parse error %s: %s", url, e)

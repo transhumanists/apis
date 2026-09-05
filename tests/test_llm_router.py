@@ -18,7 +18,7 @@ import pathlib
 import sys
 import unittest
 from dataclasses import dataclass
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -149,76 +149,57 @@ class TestCallLlmRouter(unittest.TestCase):
         os.environ.setdefault("ANTHROPIC_API_KEY", "test-key")
         cls.scorer = importlib.import_module("llm.score_milestone")
 
+    def setUp(self):
+        self.scorer._reset_router()
+
+    def _mock_router(self, chat_result: _FakeChatResult):
+        mock = MagicMock()
+        mock.chat.return_value = chat_result
+        return mock
+
     def test_returns_parsed_json_on_success(self):
-        good_result = _FakeChatResult(
+        result = _FakeChatResult(
             content='{"is_milestone": true, "category": "Computing & AGI"}',
-            model="groq:llama-3.3-70b-versatile",
-            provider="groq",
-            country="US",
-            attempts=1,
-            latency_ms=200.0,
+            model="groq:llama-3.3-70b-versatile", provider="groq", country="US",
+            attempts=1, latency_ms=200.0,
         )
-        with patch("router.FreeModelsRouter") as mock_router_cls:
-            mock_router = mock_router_cls.return_value
-            mock_router.chat.return_value = good_result
-            with patch.object(self.scorer, "HERE", pathlib.Path(str(ROOT / "llm"))):
-                result = self.scorer.call_llm_router("Title", "Summary")
-        self.assertEqual(result, {"is_milestone": True, "category": "Computing & AGI"})
+        with patch.object(self.scorer, "_get_router", return_value=self._mock_router(result)):
+            actual = self.scorer.call_llm_router("Title", "Summary")
+        self.assertEqual(actual, {"is_milestone": True, "category": "Computing & AGI"})
 
     def test_returns_none_on_router_error(self):
-        bad_result = _FakeChatResult(
-            content="",
-            model="",
-            provider="",
-            country="",
-            attempts=3,
-            latency_ms=0.0,
-            error="All providers exhausted",
+        result = _FakeChatResult(
+            content="", model="", provider="", country="",
+            attempts=3, latency_ms=0.0, error="All providers exhausted",
         )
-        with patch("router.FreeModelsRouter") as mock_router_cls:
-            mock_router = mock_router_cls.return_value
-            mock_router.chat.return_value = bad_result
-            with patch.object(self.scorer, "HERE", pathlib.Path(str(ROOT / "llm"))):
-                result = self.scorer.call_llm_router("t", "s")
-        self.assertIsNone(result)
+        with patch.object(self.scorer, "_get_router", return_value=self._mock_router(result)):
+            actual = self.scorer.call_llm_router("t", "s")
+        self.assertIsNone(actual)
 
     def test_returns_none_on_malformed_json(self):
-        bad_json = _FakeChatResult(
+        result = _FakeChatResult(
             content="not valid json",
-            model="groq:llama-3.3-70b",
-            provider="groq",
-            country="US",
-            attempts=1,
-            latency_ms=100.0,
+            model="groq:llama-3.3-70b", provider="groq", country="US",
+            attempts=1, latency_ms=100.0,
         )
-        with patch("router.FreeModelsRouter") as mock_router_cls:
-            mock_router = mock_router_cls.return_value
-            mock_router.chat.return_value = bad_json
-            with patch.object(self.scorer, "HERE", pathlib.Path(str(ROOT / "llm"))):
-                result = self.scorer.call_llm_router("t", "s")
-        self.assertIsNone(result)
+        with patch.object(self.scorer, "_get_router", return_value=self._mock_router(result)):
+            actual = self.scorer.call_llm_router("t", "s")
+        self.assertIsNone(actual)
 
     def test_strips_json_fences(self):
-        fenced = _FakeChatResult(
+        result = _FakeChatResult(
             content='```json\n{"is_milestone": false}\n```',
-            model="groq:llama",
-            provider="groq",
-            country="US",
-            attempts=1,
-            latency_ms=100.0,
+            model="groq:llama", provider="groq", country="US",
+            attempts=1, latency_ms=100.0,
         )
-        with patch("router.FreeModelsRouter") as mock_router_cls:
-            mock_router = mock_router_cls.return_value
-            mock_router.chat.return_value = fenced
-            with patch.object(self.scorer, "HERE", pathlib.Path(str(ROOT / "llm"))):
-                result = self.scorer.call_llm_router("t", "s")
-        self.assertEqual(result, {"is_milestone": False})
+        with patch.object(self.scorer, "_get_router", return_value=self._mock_router(result)):
+            actual = self.scorer.call_llm_router("t", "s")
+        self.assertEqual(actual, {"is_milestone": False})
 
     def test_returns_none_on_router_init_failure(self):
-        with patch("router.FreeModelsRouter", side_effect=FileNotFoundError("missing")):
-            with patch.object(self.scorer, "HERE", pathlib.Path(str(ROOT / "llm"))):
-                result = self.scorer.call_llm_router("t", "s")
-        self.assertIsNone(result)
+        with patch.object(self.scorer, "_get_router", return_value=None):
+            actual = self.scorer.call_llm_router("t", "s")
+        self.assertIsNone(actual)
 
 
 class TestCallLlmOrdering(unittest.TestCase):

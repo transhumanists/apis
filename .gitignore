@@ -13,4 +13,5 @@ data/feeds_health.json
 data/fb_post_history.json
 data/dead_feeds.json
 data/milestones_existing.json
+data/router_state.json
 Milestones.md

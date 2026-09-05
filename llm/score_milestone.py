@@ -34,12 +34,10 @@ OUT_EVENTS = ROOT / "data" / "events.json"
 OUT_MD = ROOT / "Milestones.md"
 EXISTING = ROOT / "data" / "milestones_existing.json"
 
-LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-4o")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 LLM_ROUTER_ENABLED = os.environ.get("LLM_ROUTER_ENABLED", "true").lower() in ("1", "true", "yes")
 MAX_TOKENS = 1024
-TEMPERATURE = 0.0
 MAX_ARTICLES_TO_SCORE = 200
 RATE_LIMIT_DELAY_ARTICLES = 50
 
@@ -47,6 +45,10 @@ RATE_LIMIT_DELAY_ARTICLES = 50
 # the FreeModelsRouter picks the best available free model across all configured
 # providers and cascades through them on failure.
 ROUTER_DATA_DIR = ROOT / "data"
+# Module-level reference to FreeModelsRouter so tests can patch it.
+# Set on first successful _get_router() call; remains None if router is
+# unavailable (e.g. vendored data missing).
+FreeModelsRouter = None
 
 CATEGORY_DEFAULTS: dict[str, dict] = {
     "Biotechnology":    {"icon": "🧬", "color": "#00e676"},
@@ -180,12 +182,12 @@ Return ONLY the JSON object. No markdown fences."""
 def call_llm_openai(title: str, summary: str) -> dict | None:
     if not OPENAI_API_KEY or not OpenAI:
         return None
+    raw = ""
     try:
         client = OpenAI(api_key=OPENAI_API_KEY)
-        model = "gpt-4o" if "gpt" in LLM_MODEL.lower() else LLM_MODEL
         resp = client.chat.completions.create(
-            model=model,
-            temperature=TEMPERATURE,
+            model="gpt-4o",
+            temperature=0.0,
             max_tokens=MAX_TOKENS,
             response_format={"type": "json_object"},
             messages=[
@@ -198,7 +200,7 @@ def call_llm_openai(title: str, summary: str) -> dict | None:
         raw = re.sub(r"```\s*$", "", raw, flags=re.IGNORECASE)
         return json.loads(raw)
     except json.JSONDecodeError as e:
-        log.warning("LLM returned malformed JSON: %s — %s", e, raw[:200] if 'raw' in dir() else 'N/A')
+        log.warning("LLM returned malformed JSON: %s — %s", e, raw[:200])
         return None
     except Exception as e:
         log.warning("OpenAI call failed: %s", e)
@@ -210,11 +212,10 @@ def call_llm_anthropic(title: str, summary: str) -> dict | None:
         return None
     try:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        model = LLM_MODEL if "claude" in LLM_MODEL.lower() else "claude-sonnet-4-20250514"
         resp = client.messages.create(
-            model=model,
+            model="claude-sonnet-4-20250514",
             max_tokens=MAX_TOKENS,
-            temperature=TEMPERATURE,
+            temperature=0.0,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": f"Title: {title}\n\nSummary: {summary[:1500]}"}],
         )
@@ -230,17 +231,33 @@ def call_llm_anthropic(title: str, summary: str) -> dict | None:
         return None
 
 
-def call_llm_router(title: str, summary: str) -> dict | None:
+_ROUTER_SINGLETON = None
+_ROUTER_IMPORT_ERROR = None
+
+
+def _get_router():
+    """Lazy-init FreeModelsRouter singleton.
+
+    Re-reading 4 JSON files + writing router_state.json per article (200 calls)
+    is wasteful and creates lock contention on the state file. Cache the
+    router instance for the lifetime of this process.
+    """
+    global _ROUTER_SINGLETON, _ROUTER_IMPORT_ERROR, FreeModelsRouter
+    if _ROUTER_SINGLETON is not None:
+        return _ROUTER_SINGLETON
+    if _ROUTER_IMPORT_ERROR is not None:
+        return None
     try:
         import sys as _sys
         _sys.path.insert(0, str(HERE))
-        from router import FreeModelsRouter
+        from router import FreeModelsRouter as _RouterClass
+        FreeModelsRouter = _RouterClass
     except Exception as e:
+        _ROUTER_IMPORT_ERROR = e
         log.debug("Could not import FreeModelsRouter: %s", e)
         return None
-
     try:
-        router = FreeModelsRouter(
+        _ROUTER_SINGLETON = _RouterClass(
             providers_json=str(ROUTER_DATA_DIR / "providers.json"),
             models_json=str(ROUTER_DATA_DIR / "models.json"),
             free_json=str(ROUTER_DATA_DIR / "free_models.json"),
@@ -249,6 +266,21 @@ def call_llm_router(title: str, summary: str) -> dict | None:
         )
     except Exception as e:
         log.warning("FreeModelsRouter init failed: %s", e)
+        return None
+    return _ROUTER_SINGLETON
+
+
+def _reset_router():
+    """Test hook: clear the cached router so next call re-inits."""
+    global _ROUTER_SINGLETON, _ROUTER_IMPORT_ERROR, FreeModelsRouter
+    _ROUTER_SINGLETON = None
+    _ROUTER_IMPORT_ERROR = None
+    FreeModelsRouter = None
+
+
+def call_llm_router(title: str, summary: str) -> dict | None:
+    router = _get_router()
+    if router is None:
         return None
 
     messages = [
@@ -496,7 +528,7 @@ def main():
 
     articles_sorted = sorted(articles, key=lambda a: -a.get("weight", 0))
     to_score = articles_sorted[:MAX_ARTICLES_TO_SCORE]
-    log.info("Scoring top %d articles with %s", len(to_score), LLM_MODEL)
+    log.info("Scoring top %d articles (router=%s)", len(to_score), LLM_ROUTER_ENABLED)
 
     all_milestones: list[dict] = []
     for i, article in enumerate(to_score):
