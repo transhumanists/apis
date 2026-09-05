@@ -18,6 +18,8 @@ from datetime import datetime, timezone
 from hashlib import sha1
 from typing import Any
 
+import requests
+
 anthropic: Any
 OpenAI: Any
 
@@ -207,7 +209,7 @@ def call_llm_openai(title: str, summary: str) -> Any | None:
     except json.JSONDecodeError as e:
         log.warning("LLM returned malformed JSON: %s — %s", e, raw[:200])
         return None
-    except Exception as e:
+    except (requests.RequestException, ValueError) as e:
         log.warning("OpenAI call failed: %s", e)
         return None
 
@@ -231,7 +233,7 @@ def call_llm_anthropic(title: str, summary: str) -> Any | None:
     except json.JSONDecodeError as e:
         log.warning("Anthropic returned malformed JSON: %s", e)
         return None
-    except Exception as e:
+    except (requests.RequestException, ValueError) as e:
         log.warning("Anthropic call failed: %s", e)
         return None
 
@@ -277,7 +279,7 @@ def _get_router() -> Any:
             import sys as _sys
             _sys.path.insert(0, str(HERE))
             from router import FreeModelsRouter as _RouterClass
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError, SyntaxError) as e:
             _ROUTER_IMPORT_ERROR = e
             log.debug("Could not import FreeModelsRouter: %s", e)
             return None
@@ -292,7 +294,7 @@ def _get_router() -> Any:
                 unlimited_json=str(ROUTER_DATA_DIR / "unlimited.json"),
                 state_path=str(ROUTER_DATA_DIR / "router_state.json"),
             )
-        except Exception as e:
+        except (ValueError, TypeError, OSError) as e:
             log.warning("FreeModelsRouter init failed: %s", e)
             return None
         return _ROUTER_SINGLETON
@@ -486,7 +488,7 @@ def build_categories_output() -> dict[str, Any]:
     return output_categories
 
 
-def generate_milestones_md(categories: dict[str, Any], existing_by_subcat: dict[str, Any]) -> str:
+def generate_milestones_md(categories: dict[str, Any], existing_by_subcat: dict[str, Any]) -> str:  # noqa: ARG001
     now = _utc_now()
     lines = [
         "# Human Progress Milestones",
@@ -553,7 +555,7 @@ def main() -> None:
             for cat_name, cat_data in existing.get("categories", {}).items():
                 for sub_list in cat_data.get("subcategories", []):
                     existing_by_subcat[f"{cat_name}/{sub_list}"] = cat_data.get("milestones", [])
-        except Exception as e:
+        except (OSError, ValueError, json.JSONDecodeError) as e:
             log.warning("Could not load existing milestones: %s", e)
 
     articles_sorted = sorted(articles, key=lambda a: -a.get("weight", 0))

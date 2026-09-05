@@ -5,7 +5,9 @@ temp dir so tests don't pollute the real budget counters.
 """
 import json
 
-from rate_limit import PLATFORMS as _PLATFORMS  # noqa: F401  (re-exported as rl_module)
+from rate_limit import PLATFORMS as _PLATFORMS
+
+_ = _PLATFORMS
 
 
 def test_first_call_allowed(rl):

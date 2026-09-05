@@ -1,0 +1,29 @@
+target-version = "py310"
+line-length = 120
+
+[lint]
+ignore = [
+    "EXE001",
+    "SIM117",
+]
+select = [
+    "E",
+    "F",
+    "W",
+    "I",
+    "N",
+    "UP",
+    "B",
+    "BLE",
+    "C4",
+    "RET",
+    "ARG",
+    "RUF",
+]
+
+[lint.per-file-ignores]
+"llm/router.py" = ["BLE001", "EXE001", "ARG002"]
+"llm/score_milestone.py" = ["E501"]
+"tests/*" = ["ANN", "D", "S", "N801", "SLF001", "ARG001", "ARG005"]
+"scrapers/*" = ["T201", "E501"]
+"llm/*" = ["T201", "BLE001"]

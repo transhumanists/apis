@@ -238,7 +238,7 @@ def fetch_feed(feed_def: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dic
                         "published": (published or today_str),
                         "fetched_at": now_iso,
                     })
-                except Exception as e:
+                except (AttributeError, TypeError, ValueError, KeyError) as e:
                     log.debug("Entry parse error %s: %s", url, e)
 
             # ── Cache the result ───────────────────────────────────
@@ -292,7 +292,7 @@ def main() -> None:
                 articles, errors = future.result()
                 all_articles.extend(articles)
                 dead_feeds.extend(errors)
-            except Exception as e:
+            except (requests.RequestException, ValueError, KeyError, OSError) as e:
                 log.error("Unhandled exception for %s: %s", feed_def["url"], e)
                 dead_feeds.append({"url": feed_def["url"], "error": str(e), "status": "exception"})
 
