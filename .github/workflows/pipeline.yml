@@ -70,7 +70,7 @@ jobs:
       - name: Download scraped data
         uses: actions/download-artifact@v4
         with:
-          name: scraped-data
+          name: scored-data
           path: data
 
       - name: Save previous milestones for delta
@@ -176,43 +176,6 @@ jobs:
       - name: Generate activity
         env:
           GH_TOKEN: ${{ secrets.MILESTONES_DISPATCH_TOKEN || secrets.GITHUB_TOKEN }}
-        run: |
-          python github/dashboard_updater.py || true
-
-      - name: Commit
-        env:
-          GH_TOKEN: ${{ secrets.MILESTONES_DISPATCH_TOKEN || secrets.GITHUB_TOKEN }}
-        run: |
-          git config user.name "transhumanists-bot"
-          git config user.email "bot@transhumanists.github.io"
-          if git diff --quiet data/; then
-            echo "No site data changes"
-            exit 0
-          fi
-          git add data/
-          ts=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
-          git commit -m "chore(dashboard): auto-update ${ts}"
-          git push
-
-  commit-site:
-    name: Commit to transhumanists.github.io
-    needs: score
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: transhumanists/transhumanists.github.io
-          token: ${{ secrets.MILESTONES_DISPATCH_TOKEN || secrets.GITHUB_TOKEN }}
-          ref: main
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: scored-data
-          path: data
-
-      - name: Generate activity
         run: |
           python github/dashboard_updater.py || true
 
