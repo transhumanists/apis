@@ -83,3 +83,26 @@ jobs:
             exit 1
           fi
           echo "available-providers=${{ steps.llm-router.outputs.available-providers }}"
+
+  pip-audit:
+    name: pip-audit security scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pip-audit
+        run: pip install pip-audit --quiet
+      - name: Audit requirements.txt
+        run: |
+          set -euo pipefail
+          echo "## pip-audit results" >> "$GITHUB_STEP_SUMMARY"
+          # Run audit; non-zero exit only fails the job on HIGH or CRITICAL findings.
+          python -m pip_audit -r requirements.txt --strict 2>&1 | tee /tmp/audit.log
+          RC=${PIPESTATUS[0]}
+          if [ "$RC" -ne 0 ]; then
+            echo "::error::pip-audit found $RC vulnerabilities. See /tmp/audit.log"
+            exit 1
+          fi
