@@ -59,13 +59,8 @@ jobs:
         with:
           fetch-depth: 1
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: requirements.txt
-
-      - run: pip install -r requirements.txt --quiet
+      - name: Install consumer dependencies
+        run: pip install -r requirements.txt --quiet
 
       - name: Download scraped data
         uses: actions/download-artifact@v4
@@ -81,23 +76,30 @@ jobs:
             "https://raw.githubusercontent.com/transhumanists/milestones/main/data/milestones.json" \
             -o data/milestones_existing.json || echo '{"categories":{}}' > data/milestones_existing.json
 
-      - name: Score milestones
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          LLM_MODEL: ${{ vars.LLM_MODEL || 'gpt-4o' }}
-          LLM_ROUTER_ENABLED: ${{ vars.LLM_ROUTER_ENABLED || 'true' }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
-          SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
-          GITHUB_MODELS_API_KEY: ${{ secrets.GITHUB_MODELS_API_KEY }}
-          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
-          HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+      - name: Set up LLM router
+        id: llm-router
+        uses: neohiro/llm-action@v1
+        with:
+          llm-router-enabled: ${{ vars.LLM_ROUTER_ENABLED || 'true' }}
+          llm-model: ${{ vars.LLM_MODEL || 'gpt-4o' }}
+          openai-key: ${{ secrets.OPENAI_API_KEY }}
+          anthropic-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          groq-key: ${{ secrets.GROQ_API_KEY }}
+          cerebras-key: ${{ secrets.CEREBRAS_API_KEY }}
+          sambanova-key: ${{ secrets.SAMBANOVA_API_KEY }}
+          github-models-key: ${{ secrets.GITHUB_MODELS_API_KEY }}
+          cloudflare-key: ${{ secrets.CLOUDFLARE_API_KEY }}
+          cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          openrouter-key: ${{ secrets.OPENROUTER_API_KEY }}
+          google-ai-key: ${{ secrets.GOOGLE_AI_API_KEY }}
+          huggingface-key: ${{ secrets.HUGGINGFACE_API_KEY }}
+          nvidia-key: ${{ secrets.NVIDIA_API_KEY }}
+          cohere-key: ${{ secrets.COHERE_API_KEY }}
+          data-dir: data
+          python-version: '3.12'
+          cache-pip: false
+
+      - name: Run scoring
         run: python llm/score_milestone.py
 
       - uses: actions/upload-artifact@v4
