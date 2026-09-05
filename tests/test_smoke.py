@@ -20,8 +20,6 @@ import unittest
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
-import yaml
-
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -64,7 +62,6 @@ class TestRssFetcher(unittest.TestCase):
             self.assertTrue(f["url"].startswith("http"), f"Bad URL: {f['url']}")
 
     def test_all_feeds_have_known_category(self):
-        known = set(llm_scorer.DEFAULT_SUBCATEGORIES) | {"Biotechnology", "Energy", "Defense"}
         # The 7 defaults plus dynamically-added ones
         for f in rss_fetcher.FEEDS:
             self.assertIsInstance(f["category"], str)
@@ -264,7 +261,7 @@ class TestLlmScorer(unittest.TestCase):
             "is_record": False, "is_breakthrough": False, "summary": "x",
         }
         with patch.object(llm_scorer, "call_llm", return_value=mock_result):
-            m = llm_scorer.score_article({"title": "X", "summary": "x"})
+            _ = llm_scorer.score_article({"title": "X", "summary": "x"})
         # Should auto-add the new subcategory
         self.assertIn("made_up_subcat_xyz", llm_scorer.DYNAMIC_SUBCATEGORIES["Biotechnology"])
 
@@ -437,7 +434,7 @@ class TestJsonSchemas(unittest.TestCase):
         if path.exists():
             data = json.loads(path.read_text())
             self.assertIn("categories", data)
-            for cat_name, cat in data["categories"].items():
+            for _cat_name, cat in data["categories"].items():
                 self.assertIn("icon", cat)
                 self.assertIn("color", cat)
                 self.assertIn("subcategories", cat)
@@ -465,7 +462,7 @@ class TestJsonSchemas(unittest.TestCase):
 class TestYamlSchemas(unittest.TestCase):
     def test_replacements_yaml_well_formed(self):
         """The replacements dict is the single source of truth for fallback feeds."""
-        for cat, urls in source_checker.REPLACEMENTS.items():
+        for _cat, urls in source_checker.REPLACEMENTS.items():
             self.assertIsInstance(urls, list)
             for u in urls:
                 self.assertTrue(u.startswith("http"), f"Bad replacement URL: {u}")

@@ -6,9 +6,14 @@ Reads processed milestone/event/activity data and commits it to:
   - transhumanists/transhumanists.github.io (data/)
 Uses the GitHub Contents API to avoid git conflicts.
 """
-import json, os, sys, pathlib, logging, base64, time
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+import base64
+import json
+import logging
+import os
+import pathlib
+import sys
+import time
+from datetime import datetime, timedelta, timezone
 
 try:
     import requests
@@ -57,7 +62,7 @@ def _retry_request(method: str, url: str, **kwargs) -> requests.Response:
     raise requests.RequestException(f"Failed after {MAX_RETRIES} retries: {last_err}")
 
 
-def get_file_sha(owner: str, repo: str, path: str) -> Optional[str]:
+def get_file_sha(owner: str, repo: str, path: str) -> str | None:
     try:
         r = _retry_request("GET", f"{API}/repos/{owner}/{repo}/contents/{path}",
                            headers=_headers())
@@ -87,13 +92,12 @@ def upsert_file(owner: str, repo: str, path: str, content: bytes, message: str) 
         if resp.status_code in (200, 201):
             log.info("Updated %s/%s/%s", owner, repo, path)
             return True
-        elif resp.status_code == 409:
+        if resp.status_code == 409:
             log.warning("Conflict on %s/%s/%s — skipping", owner, repo, path)
             return False
-        else:
-            log.error("Failed %s/%s/%s: HTTP %d — %s", owner, repo, path,
-                      resp.status_code, resp.text[:200])
-            return False
+        log.error("Failed %s/%s/%s: HTTP %d — %s", owner, repo, path,
+                  resp.status_code, resp.text[:200])
+        return False
     except requests.RequestException as e:
         log.error("Error upserting %s/%s/%s: %s", owner, repo, path, e)
         return False
@@ -174,15 +178,13 @@ def main():
         log.info("Updating %s/%s...", owner, repo)
         ok = 0
 
-        if ms_src.exists():
-            if upsert_file(owner, repo, "data/milestones.json",
-                           ms_src.read_bytes(), commit_msg):
-                ok += 1
+        if ms_src.exists() and upsert_file(owner, repo, "data/milestones.json",
+                                           ms_src.read_bytes(), commit_msg):
+            ok += 1
 
-        if ev_src.exists():
-            if upsert_file(owner, repo, "data/events.json",
-                           ev_src.read_bytes(), commit_msg):
-                ok += 1
+        if ev_src.exists() and upsert_file(owner, repo, "data/events.json",
+                                           ev_src.read_bytes(), commit_msg):
+            ok += 1
 
         act_bytes = json.dumps(activity, indent=2).encode()
         if upsert_file(owner, repo, "data/activity.json", act_bytes, commit_msg):

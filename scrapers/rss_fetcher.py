@@ -15,6 +15,7 @@ import pathlib
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import suppress
 from datetime import datetime, timezone
 
 import feedparser
@@ -23,7 +24,7 @@ from bs4 import BeautifulSoup
 
 # Make `apis` importable so we can use the rate_limit module
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
-from rate_limit import check_and_consume, record_response, cache_get, cache_set
+from rate_limit import cache_get, cache_set, check_and_consume, record_response
 
 OUT_FILE = pathlib.Path(__file__).parent.parent / "data" / "articles.json"
 OUT_FILE.parent.mkdir(exist_ok=True)
@@ -207,12 +208,10 @@ def fetch_feed(feed_def: dict) -> tuple[list[dict], list[dict]]:
                     link = getattr(entry, "link", None) or getattr(entry, "id", "") or ""
                     article_id = hashlib.sha256(link.encode()).hexdigest()[:16]
 
-                    published = None
-                    if getattr(entry, "published_parsed", None):
-                        try:
-                            published = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                        except Exception:
-                            pass
+                    pp = getattr(entry, "published_parsed", None)
+                    if pp:
+                        with suppress(Exception):
+                            published = time.strftime("%Y-%m-%d", pp)
 
                     raw_summary = (
                         getattr(entry, "summary", None)

@@ -15,7 +15,6 @@ import sys
 import time
 from datetime import datetime, timezone
 from hashlib import sha1
-from typing import Optional
 
 try:
     from openai import OpenAI
@@ -172,7 +171,7 @@ If NOT a milestone, output: {"is_milestone": false}
 Return ONLY the JSON object. No markdown fences."""
 
 
-def call_llm_openai(title: str, summary: str) -> Optional[dict]:
+def call_llm_openai(title: str, summary: str) -> dict | None:
     if not OPENAI_API_KEY or not OpenAI:
         return None
     try:
@@ -200,7 +199,7 @@ def call_llm_openai(title: str, summary: str) -> Optional[dict]:
         return None
 
 
-def call_llm_anthropic(title: str, summary: str) -> Optional[dict]:
+def call_llm_anthropic(title: str, summary: str) -> dict | None:
     if not ANTHROPIC_API_KEY or not anthropic:
         return None
     try:
@@ -225,14 +224,14 @@ def call_llm_anthropic(title: str, summary: str) -> Optional[dict]:
         return None
 
 
-def call_llm(title: str, summary: str) -> Optional[dict]:
+def call_llm(title: str, summary: str) -> dict | None:
     result = call_llm_openai(title, summary)
     if result:
         return result
     return call_llm_anthropic(title, summary)
 
 
-def normalize_value(value, unit: Optional[str]) -> float:
+def normalize_value(value, unit: str | None) -> float:
     if value is None:
         return 0.0
     try:
@@ -299,7 +298,7 @@ def ensure_subcategory(category: str, subcategory: str) -> None:
         CATEGORIES[category]["subcategories"].append(subcategory)
 
 
-def score_article(article: dict) -> Optional[dict]:
+def score_article(article: dict) -> dict | None:
     if not (OPENAI_API_KEY or ANTHROPIC_API_KEY):
         log.error("No LLM API key set — set OPENAI_API_KEY or ANTHROPIC_API_KEY")
         sys.exit(1)
@@ -371,7 +370,7 @@ def generate_milestones_md(categories: dict, existing_by_subcat: dict) -> str:
     lines = [
         "# Human Progress Milestones",
         "",
-        f"> **Live dashboard:** [transhumanists.github.io](https://transhumanists.github.io) · **API engine:** [transhumanists/apis](https://github.com/transhumanists/apis)",
+        "> **Live dashboard:** [transhumanists.github.io](https://transhumanists.github.io) · **API engine:** [transhumanists/apis](https://github.com/transhumanists/apis)",
         "",
         f"*Auto-generated: {now} · {sum(len(c.get('milestones', [])) for c in categories.values())} active milestones across {len(categories)} categories*",
         "",

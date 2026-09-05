@@ -8,11 +8,9 @@ Outputs feeds_health.json.
 import json
 import logging
 import pathlib
-import re
-import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import feedparser
 import requests
@@ -108,8 +106,7 @@ def check_url(url: str) -> dict:
                     result["status"] = "healthy"
                     result["items"] = len(parsed.entries)
                     return result
-                else:
-                    result["status"] = "empty"
+                result["status"] = "empty"
             else:
                 result["status"] = "dead"
         else:

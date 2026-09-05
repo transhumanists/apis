@@ -4,6 +4,7 @@ The conftest.py patches rate_limit.py to redirect state files to a
 temp dir so tests don't pollute the real budget counters.
 """
 import json
+
 from rate_limit import PLATFORMS as _PLATFORMS  # noqa: F401  (re-exported as rl_module)
 
 
