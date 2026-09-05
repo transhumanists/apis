@@ -264,8 +264,8 @@ def fetch_feed(feed_def: dict) -> tuple[list[dict], list[dict]]:
         except requests.RequestException as e:
             last_error = str(e)
             log.warning("Error %s: %s (attempt %d/%d)", url, e, attempt + 1, FETCH_RETRIES)
-
-        time.sleep(2 ** attempt)
+            if attempt < FETCH_RETRIES - 1:
+                time.sleep(2 ** attempt)
 
     log.info("Fetched %d articles from %s", len(articles), url)
 

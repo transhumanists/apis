@@ -95,20 +95,15 @@ def _utc_now() -> str:
 def check_url(url: str) -> dict:
     result = {"url": url, "status": "unknown", "http": 0, "items": 0, "checked_at": _utc_now()}
     try:
-        r = requests.head(url, headers=HEADERS, timeout=TIMEOUT, allow_redirects=True)
+        r = requests.get(url, headers=HEADERS, timeout=TIMEOUT, allow_redirects=True)
         result["http"] = r.status_code
-        if r.status_code in (200, 301, 302):
-            r = requests.get(url, headers=HEADERS, timeout=TIMEOUT, stream=False)
-            result["http"] = r.status_code
-            if r.status_code == 200:
-                parsed = feedparser.parse(r.content)
-                if parsed.entries:
-                    result["status"] = "healthy"
-                    result["items"] = len(parsed.entries)
-                    return result
-                result["status"] = "empty"
+        if r.status_code == 200:
+            parsed = feedparser.parse(r.content)
+            if parsed.entries:
+                result["status"] = "healthy"
+                result["items"] = len(parsed.entries)
             else:
-                result["status"] = "dead"
+                result["status"] = "empty"
         else:
             result["status"] = "dead"
     except requests.Timeout:

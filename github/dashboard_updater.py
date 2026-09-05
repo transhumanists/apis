@@ -68,8 +68,11 @@ def get_file_sha(owner: str, repo: str, path: str) -> str | None:
                            headers=_headers())
         if r.status_code == 200:
             return r.json().get("sha")
-    except Exception:
-        pass
+        if r.status_code == 404:
+            return None
+        log.error("Unexpected status %d fetching sha for %s/%s/%s", r.status_code, owner, repo, path)
+    except Exception as e:
+        log.error("Network error fetching sha for %s/%s/%s: %s", owner, repo, path, e)
     return None
 
 
