@@ -9,9 +9,8 @@ import json
 import logging
 import os
 import pathlib
-import tempfile
+from contextlib import suppress
 from datetime import datetime, timezone
-from typing import Optional
 
 try:
     import requests
@@ -45,7 +44,7 @@ def _utc_date() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
-def get_access_token() -> tuple[Optional[str], Optional[str]]:
+def get_access_token() -> tuple[str | None, str | None]:
     page_id = os.environ.get("FB_PAGE_ID") or os.environ.get("FB_PAGE_ID_SECRET", "")
     token = os.environ.get("FB_PAGE_ACCESS_TOKEN") or os.environ.get("FB_ACCESS_TOKEN_SECRET", "")
     if not page_id or not token:
@@ -95,10 +94,9 @@ def post_to_facebook(page_id: str, token: str, message: str) -> dict:
             post_id = data["id"]
             log.info("Posted to Facebook: %s", post_id)
             return {"success": True, "post_id": post_id, "url": f"https://facebook.com/{page_id}/posts/{post_id}"}
-        else:
-            err = data.get("error", {})
-            log.error("Facebook API error %s: %s", err.get("code"), err.get("message"))
-            return {"success": False, "error": err.get("message", str(data))}
+        err = data.get("error", {})
+        log.error("Facebook API error %s: %s", err.get("code"), err.get("message"))
+        return {"success": False, "error": err.get("message", str(data))}
     except requests.RequestException as e:
         log.error("HTTP error posting to Facebook: %s", e)
         return {"success": False, "error": str(e)}
@@ -122,10 +120,8 @@ def should_post() -> bool:
 def record_post(post_id: str) -> None:
     hist = {}
     if POST_HISTORY.exists():
-        try:
+        with suppress(Exception):
             hist = json.loads(POST_HISTORY.read_text())
-        except Exception:
-            pass
     hist["last_post_date"] = _utc_date()
     hist["last_post_id"] = post_id
     tmp = POST_HISTORY.with_suffix(".tmp")

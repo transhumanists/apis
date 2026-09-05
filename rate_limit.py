@@ -18,13 +18,11 @@ Design:
 - Thread-safe via simple lock (we never expect multi-thread writers)
 """
 import json
-import os
 import threading
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 ROOT = Path(__file__).parent
 STATE_FILE = ROOT / "data" / "rate_limit_state.json"
@@ -223,7 +221,7 @@ def record_response(platform: str, status: int, error: str = "") -> None:
         _save_state(state)
 
 
-def get_status(platform: Optional[str] = None) -> dict:
+def get_status(platform: str | None = None) -> dict:
     """Get current usage. For dashboards / debugging."""
     with _lock:
         state = _ensure_state()
@@ -248,7 +246,7 @@ def get_status(platform: Optional[str] = None) -> dict:
         return out
 
 
-def reset(platform: Optional[str] = None) -> None:
+def reset(platform: str | None = None) -> None:
     """Reset counters. Used by tests."""
     with _lock:
         state = _ensure_state()
@@ -283,7 +281,7 @@ def wait_for_slot(platform: str, max_wait: int = 300) -> bool:
 CACHE_DIR = ROOT / "data" / "rate_limit_cache"
 
 
-def cache_get(key: str, max_age_seconds: int) -> Optional[dict]:
+def cache_get(key: str, max_age_seconds: int) -> dict | None:
     """Return cached value if fresh, else None."""
     if max_age_seconds <= 0:
         return None
