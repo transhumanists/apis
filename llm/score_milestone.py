@@ -20,16 +20,13 @@ from typing import Any
 
 import requests
 
-anthropic: Any
-OpenAI: Any
-
 try:
     from openai import OpenAI
 except ImportError:
-    OpenAI = None
+    OpenAI = None  # type: ignore[misc,assignment]
 
 try:
-    import anthropic  # type: ignore[no-redef]
+    import anthropic
 except ImportError:
     anthropic = None
 
@@ -202,7 +199,7 @@ def call_llm_openai(title: str, summary: str) -> Any | None:
                 {"role": "user", "content": f"Title: {title}\n\nSummary: {summary[:1500]}"},
             ],
         )
-        raw = resp.choices[0].message.content.strip()
+        raw = (resp.choices[0].message.content or "").strip()
         raw = re.sub(r"^```json\s*", "", raw, flags=re.IGNORECASE)
         raw = re.sub(r"```\s*$", "", raw, flags=re.IGNORECASE)
         return json.loads(raw)
