@@ -112,9 +112,6 @@ def check_url(url: str) -> dict:
     except requests.RequestException as e:
         result["status"] = "error"
         result["error"] = str(e)
-    except Exception as e:
-        result["status"] = "exception"
-        result["error"] = str(e)
     return result
 
 

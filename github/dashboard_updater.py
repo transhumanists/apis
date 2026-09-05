@@ -157,7 +157,7 @@ def generate_activity() -> dict:
                 if d["count"] >= 15:
                     spikes.append({"date": d["date"], "count": d["count"],
                                    "reason": "Multiple milestones recorded"})
-        except Exception as e:
+        except (OSError, ValueError, json.JSONDecodeError) as e:
             log.warning("Could not parse milestones for activity: %s", e)
 
     if not days:
