@@ -299,12 +299,11 @@ def main():
 
     elapsed = time.time() - start
 
-    seen: set[str] = set()
-    unique: list[dict] = []
+    seen: dict[str, dict] = {}
     for a in all_articles:
         if a["id"] not in seen:
-            seen.add(a["id"])
-            unique.append(a)
+            seen[a["id"]] = a
+    unique = list(seen.values())
 
     output = {
         "last_update": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),

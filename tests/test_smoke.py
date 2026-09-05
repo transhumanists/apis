@@ -427,6 +427,45 @@ class TestDashboardUpdater(unittest.TestCase):
         self.assertIn("last_update", activity)
         self.assertIn("spikes", activity)
 
+    def test_get_file_sha_404_returns_none(self):
+        from requests import Response
+        resp_404 = Response()
+        resp_404.status_code = 404
+        with patch.object(dashboard_updater.requests, "request", return_value=resp_404):
+            sha = dashboard_updater.get_file_sha("owner", "repo", "missing.json")
+        self.assertIsNone(sha)
+
+    def test_get_file_sha_500_raises_file_fetch_error(self):
+        from requests import Response
+        resp_500 = Response()
+        resp_500.status_code = 500
+        resp_500._content = b"server error"
+        with patch.object(dashboard_updater.requests, "request", return_value=resp_500):
+            with patch.object(dashboard_updater.time, "sleep", lambda *_: None):
+                with self.assertRaises(dashboard_updater.FileFetchError) as ctx:
+                    dashboard_updater.get_file_sha("owner", "repo", "path.json")
+        self.assertEqual(ctx.exception.status, 500)
+        self.assertEqual(ctx.exception.owner, "owner")
+        self.assertEqual(ctx.exception.repo, "repo")
+
+    def test_get_file_sha_network_error_raises_file_fetch_error(self):
+        from requests.exceptions import ConnectionError
+        with patch.object(dashboard_updater.requests, "request", side_effect=ConnectionError("dns fail")):
+            with patch.object(dashboard_updater.time, "sleep", lambda *_: None):
+                with self.assertRaises(dashboard_updater.FileFetchError) as ctx:
+                    dashboard_updater.get_file_sha("owner", "repo", "path.json")
+        self.assertEqual(ctx.exception.status, 0)
+        self.assertIn("dns fail", ctx.exception.message)
+
+    def test_upsert_file_skips_on_file_fetch_error(self):
+        from requests import Response
+        resp_500 = Response()
+        resp_500.status_code = 500
+        with patch.object(dashboard_updater.requests, "request", return_value=resp_500):
+            with patch.object(dashboard_updater.time, "sleep", lambda *_: None):
+                ok = dashboard_updater.upsert_file("owner", "repo", "data/x.json", b"{}", "msg")
+        self.assertFalse(ok)
+
 
 class TestJsonSchemas(unittest.TestCase):
     def test_existing_milestones_json_valid(self):
