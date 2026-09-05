@@ -18,4 +18,7 @@ jobs:
           cache: 'pip'
           cache-dependency-path: requirements.txt
       - run: pip install -r requirements.txt --quiet
+      - run: pip install mypy ruff --quiet
+      - run: python -m ruff check llm/ scrapers/ tests/
+      - run: python -m mypy llm/score_milestone.py scrapers/rss_fetcher.py --config-file mypy.ini
       - run: python -m pytest tests/ -v

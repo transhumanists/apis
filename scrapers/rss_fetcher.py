@@ -17,6 +17,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import suppress
 from datetime import datetime, timezone
+from typing import Any
 
 import feedparser
 import requests
@@ -45,7 +46,7 @@ MAX_ARTICLE_SIZE = 1024 * 1024
 MAX_ARTICLES_PER_FEED = 50
 ENABLE_CACHE = True  # set False to force fresh fetch
 
-FEEDS: list[dict] = [
+FEEDS: list[dict[str, Any]] = [
     {"url": "https://www.nature.com/nbt.rss", "category": "Biotechnology", "weight": 3},
     {"url": "https://www.biorxiv.org/rss/all.xml", "category": "Biotechnology", "weight": 2},
     {"url": "https://www.sciencedirect.com/science/article/feed/atom", "category": "Biotechnology", "weight": 2},
@@ -138,12 +139,12 @@ logging.basicConfig(
 log = logging.getLogger("rss_fetcher")
 
 
-def fetch_feed(feed_def: dict) -> tuple[list[dict], list[dict]]:
+def fetch_feed(feed_def: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     url = feed_def["url"]
     category = feed_def["category"]
     weight = feed_def.get("weight", 1)
-    articles: list[dict] = []
-    errors: list[dict] = []
+    articles: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
     error_logged = False
     last_error = ""
     now_utc = datetime.now(timezone.utc)
@@ -251,7 +252,8 @@ def fetch_feed(feed_def: dict) -> tuple[list[dict], list[dict]]:
             last_error = "Timeout"
             log.warning("Timeout %s (attempt %d/%d)", url, attempt + 1, FETCH_RETRIES)
         except requests.HTTPError as e:
-            status = e.response.status_code
+            resp_obj = getattr(e, "response", None)
+            status = resp_obj.status_code if resp_obj is not None else 0
             last_error = f"HTTP {status}"
             log.warning("HTTP %d %s (attempt %d/%d)", status, url, attempt + 1, FETCH_RETRIES)
             if status == 404:
@@ -274,12 +276,12 @@ def fetch_feed(feed_def: dict) -> tuple[list[dict], list[dict]]:
     return articles, errors
 
 
-def main():
+def main() -> None:
     log.info("Starting RSS fetch — %d feeds across %d categories",
              len(FEEDS), len({f["category"] for f in FEEDS}))
 
-    all_articles: list[dict] = []
-    dead_feeds: list[dict] = []
+    all_articles: list[dict[str, Any]] = []
+    dead_feeds: list[dict[str, Any]] = []
     start = time.time()
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
@@ -296,7 +298,7 @@ def main():
 
     elapsed = time.time() - start
 
-    seen: dict[str, dict] = {}
+    seen: dict[str, dict[str, Any]] = {}
     for a in all_articles:
         if a["id"] not in seen:
             seen[a["id"]] = a

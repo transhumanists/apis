@@ -23,7 +23,7 @@ It scrapes 80+ RSS feeds, runs them through an LLM to extract structured milesto
 | Module | What it does |
 |--------|--------------|
 | `scrapers/rss_fetcher.py` | Pulls 80+ feeds in parallel, deduplicates, writes `data/articles.json` |
-| `llm/score_milestone.py` | Calls OpenAI / Anthropic, extracts structured milestones, writes `data/milestones.json` + `data/events.json` |
+| `llm/score_milestone.py` | Calls neohiro/LLM FreeModelsRouter → OpenAI → Anthropic cascade, extracts structured milestones, writes `data/milestones.json` + `data/events.json` |
 | `self_healer/source_checker.py` | Validates all feeds, finds replacements for dead ones, writes `data/feeds_health.json` |
 | `social/facebook_poster.py` | Posts daily milestone digest to [facebook.com/transhumanistsBE](https://facebook.com/transhumanistsBE) via Meta Graph API |
 | `github/dashboard_updater.py` | Commits updated data to `transhumanists/milestones` and `transhumanists/transhumanists.github.io` via GitHub API |
@@ -61,13 +61,46 @@ python github/dashboard_updater.py
 
 | Secret / Variable | Required? | Purpose |
 |-------------------|-----------|---------|
-| `OPENAI_API_KEY` | yes (or ANTHROPIC_API_KEY) | LLM milestone extraction |
-| `ANTHROPIC_API_KEY` | alternative | LLM milestone extraction |
-| `GITHUB_TOKEN` | yes (Actions) | Cross-repo data commits |
+| `MILESTONES_DISPATCH_TOKEN` | **required for Actions** | PAT with `repo` scope on `transhumanists/milestones` + `transhumanists/transhumanists.github.io`. The default `GITHUB_TOKEN` is read-only for cross-org writes. |
+| `GROQ_API_KEY` | recommended | Free LLM (Groq — 14.4k req/day, Llama 3.3 70B, ~1s latency). Primary path via FreeModelsRouter. |
+| `CEREBRAS_API_KEY` | optional | Free LLM fallback |
+| `SAMBANOVA_API_KEY` | optional | Free LLM fallback |
+| `GITHUB_MODELS_API_KEY` | optional | Free LLM fallback (uses `GITHUB_TOKEN` automatically) |
+| `CLOUDFLARE_API_KEY` + `CLOUDFLARE_ACCOUNT_ID` | optional | Free LLM fallback (Workers AI) |
+| `OPENROUTER_API_KEY` | optional | Free LLM fallback |
+| `GOOGLE_AI_API_KEY` | optional | Free LLM fallback (Gemini) |
+| `HUGGINGFACE_API_KEY` | optional | Free LLM fallback |
+| `NVIDIA_API_KEY` | optional | Free LLM fallback (NIM) |
+| `COHERE_API_KEY` | optional | Free LLM fallback |
+| `OPENAI_API_KEY` | optional | Paid LLM fallback (only used if router is disabled or all free providers fail) |
+| `ANTHROPIC_API_KEY` | optional | Paid LLM fallback |
+| `LLM_ROUTER_ENABLED` | optional var | Set to `false` to skip router and use paid APIs only (default `true`) |
 | `FB_PAGE_ID` | optional | Facebook posting |
 | `FB_PAGE_ACCESS_TOKEN` | optional | Facebook posting |
-| `LLM_MODEL` | optional | Override model (default `gpt-4o`) |
 | `FACEBOOK_ENABLED` | optional var | Set to `true` to enable FB posting |
+
+### Setting up `MILESTONES_DISPATCH_TOKEN`
+
+The pipeline commits `data/milestones.json`, `data/events.json`, and
+`data/activity.json` to two other repos in the org. The default
+`GITHUB_TOKEN` is read-only for cross-org writes, so a personal access
+token is required.
+
+1. Go to https://github.com/settings/tokens?type=beta (fine-grained PAT)
+2. **Repository access**: choose "Public Repositories (read+write)" — or
+   "Only select repositories" and pick `transhumanists/milestones` and
+   `transhumanists/transhumanists.github.io`
+3. **Permissions → Repository → Contents**: `Read and write`
+4. **Permissions → Repository → Metadata**: `Read-only` (auto-granted)
+5. Generate the token, copy it once
+6. In `transhumanists/apis` repo → Settings → Secrets and variables → Actions → New repository secret:
+   - Name: `MILESTONES_DISPATCH_TOKEN`
+   - Value: `github_pat_...`
+7. Re-run the pipeline — the `commit-milestones` and `commit-site` jobs
+   will succeed and push to both target repos.
+
+> **Tip:** Use a separate, scoped PAT per downstream repo. If the token
+> is ever leaked, rotate it without affecting the other org.
 
 ---
 
