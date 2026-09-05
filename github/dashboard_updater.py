@@ -23,7 +23,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("dashboard_updater")
 
-TOKEN = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN", "")
+TOKEN = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
 REPOS = [
     ("transhumanists", "milestones"),
     ("transhumanists", "transhumanists.github.io"),
@@ -46,12 +46,14 @@ def _utc_now() -> str:
 
 
 def _retry_request(method: str, url: str, **kwargs) -> requests.Response:
+    last_resp: requests.Response | None = None
     last_err = ""
     for attempt in range(MAX_RETRIES):
         try:
             resp = requests.request(method, url, timeout=kwargs.pop("timeout", 20), **kwargs)
             if resp.status_code < 500:
                 return resp
+            last_resp = resp
             last_err = f"HTTP {resp.status_code}"
             log.warning("Transient error %s (attempt %d/%d): %s", url, attempt + 1, MAX_RETRIES, last_err)
         except requests.RequestException as e:
@@ -59,10 +61,27 @@ def _retry_request(method: str, url: str, **kwargs) -> requests.Response:
             log.warning("Request error %s (attempt %d/%d): %s", url, attempt + 1, MAX_RETRIES, last_err)
         if attempt < MAX_RETRIES - 1:
             time.sleep(RETRY_BACKOFF ** attempt)
+    if last_resp is not None:
+        # Re-raise as HTTPError so callers can read .response.status_code
+        err = requests.HTTPError(f"Failed after {MAX_RETRIES} retries: {last_err}", response=last_resp)
+        raise err
     raise requests.RequestException(f"Failed after {MAX_RETRIES} retries: {last_err}")
 
 
+class FileFetchError(Exception):
+    """Raised when a GitHub Contents API call fails with a non-retryable status."""
+    def __init__(self, owner: str, repo: str, path: str, status: int, message: str = ""):
+        self.owner = owner
+        self.repo = repo
+        self.path = path
+        self.status = status
+        self.message = message
+        super().__init__(f"GitHub API error {status} for {owner}/{repo}/{path}: {message}")
+
+
 def get_file_sha(owner: str, repo: str, path: str) -> str | None:
+    """Return the blob SHA for a file, or None if it does not exist yet.
+    Raises FileFetchError for any non-404, non-200 response."""
     try:
         r = _retry_request("GET", f"{API}/repos/{owner}/{repo}/contents/{path}",
                            headers=_headers())
@@ -70,14 +89,19 @@ def get_file_sha(owner: str, repo: str, path: str) -> str | None:
             return r.json().get("sha")
         if r.status_code == 404:
             return None
-        log.error("Unexpected status %d fetching sha for %s/%s/%s", r.status_code, owner, repo, path)
-    except Exception as e:
-        log.error("Network error fetching sha for %s/%s/%s: %s", owner, repo, path, e)
-    return None
+        raise FileFetchError(owner, repo, path, r.status_code, r.text[:200])
+    except requests.RequestException as e:
+        resp = getattr(e, "response", None)
+        status = resp.status_code if resp is not None else 0
+        raise FileFetchError(owner, repo, path, status, str(e)) from e
 
 
 def upsert_file(owner: str, repo: str, path: str, content: bytes, message: str) -> bool:
-    sha = get_file_sha(owner, repo, path)
+    try:
+        sha = get_file_sha(owner, repo, path)
+    except FileFetchError as e:
+        log.error("Cannot fetch SHA for %s/%s/%s — skipping update: %s", owner, repo, path, e)
+        return False
     payload = {
         "message": message,
         "content": base64.b64encode(content).decode(),
