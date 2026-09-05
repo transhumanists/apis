@@ -27,3 +27,5 @@ select = [
 "tests/*" = ["ANN", "D", "S", "N801", "SLF001", "ARG001", "ARG005"]
 "scrapers/*" = ["T201", "E501"]
 "llm/*" = ["T201", "BLE001"]
+"github/*" = ["T201", "BLE001"]
+"self_healer/*" = ["T201", "BLE001", "N806"]

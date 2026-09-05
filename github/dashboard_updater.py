@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import pathlib
+import random
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -160,7 +161,6 @@ def generate_activity() -> dict:
             log.warning("Could not parse milestones for activity: %s", e)
 
     if not days:
-        import random
         random.seed(int(today.timestamp()) // 86400)
         for i in range(29, -1, -1):
             d = today - timedelta(days=i)
