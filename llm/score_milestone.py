@@ -37,10 +37,16 @@ EXISTING = ROOT / "data" / "milestones_existing.json"
 LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-4o")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+LLM_ROUTER_ENABLED = os.environ.get("LLM_ROUTER_ENABLED", "true").lower() in ("1", "true", "yes")
 MAX_TOKENS = 1024
 TEMPERATURE = 0.0
 MAX_ARTICLES_TO_SCORE = 200
 RATE_LIMIT_DELAY_ARTICLES = 50
+
+# Router data files (vendored from neohiro/LLM). When LLM_ROUTER_ENABLED=true,
+# the FreeModelsRouter picks the best available free model across all configured
+# providers and cascades through them on failure.
+ROUTER_DATA_DIR = ROOT / "data"
 
 CATEGORY_DEFAULTS: dict[str, dict] = {
     "Biotechnology":    {"icon": "🧬", "color": "#00e676"},
@@ -224,7 +230,60 @@ def call_llm_anthropic(title: str, summary: str) -> dict | None:
         return None
 
 
+def call_llm_router(title: str, summary: str) -> dict | None:
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(HERE))
+        from router import FreeModelsRouter
+    except Exception as e:
+        log.debug("Could not import FreeModelsRouter: %s", e)
+        return None
+
+    try:
+        router = FreeModelsRouter(
+            providers_json=str(ROUTER_DATA_DIR / "providers.json"),
+            models_json=str(ROUTER_DATA_DIR / "models.json"),
+            free_json=str(ROUTER_DATA_DIR / "free_models.json"),
+            unlimited_json=str(ROUTER_DATA_DIR / "unlimited.json"),
+            state_path=str(ROUTER_DATA_DIR / "router_state.json"),
+        )
+    except Exception as e:
+        log.warning("FreeModelsRouter init failed: %s", e)
+        return None
+
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"Title: {title}\n\nSummary: {summary[:1500]}"},
+    ]
+
+    result = router.chat(
+        messages=messages,
+        preferred_tier="free",
+        task="classify",
+        max_tokens=MAX_TOKENS,
+    )
+
+    if result.error:
+        log.warning("Router returned error after %d attempts: %s", result.attempts, result.error)
+        return None
+
+    raw = result.content.strip()
+    raw = re.sub(r"^```json\s*", "", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"```\s*$", "", raw, flags=re.IGNORECASE)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        log.warning("Router returned malformed JSON (model=%s, provider=%s): %s — %s",
+                    result.model, result.provider, e, raw[:200])
+        return None
+
+
 def call_llm(title: str, summary: str) -> dict | None:
+    if LLM_ROUTER_ENABLED:
+        result = call_llm_router(title, summary)
+        if result:
+            return result
+        log.debug("Router returned no result — falling back to OpenAI")
     result = call_llm_openai(title, summary)
     if result:
         return result
@@ -299,8 +358,8 @@ def ensure_subcategory(category: str, subcategory: str) -> None:
 
 
 def score_article(article: dict) -> dict | None:
-    if not (OPENAI_API_KEY or ANTHROPIC_API_KEY):
-        log.error("No LLM API key set — set OPENAI_API_KEY or ANTHROPIC_API_KEY")
+    if not LLM_ROUTER_ENABLED and not (OPENAI_API_KEY or ANTHROPIC_API_KEY):
+        log.error("No LLM API key set — set OPENAI_API_KEY or ANTHROPIC_API_KEY (or enable LLM_ROUTER_ENABLED=true with at least one free provider key)")
         sys.exit(1)
 
     title = article.get("title", "")
