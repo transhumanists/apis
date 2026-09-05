@@ -503,29 +503,41 @@ class TestJsonSchemas(unittest.TestCase):
 
 
 class TestLlmOutput(unittest.TestCase):
-    def test_mkdir_parents_called_before_write(self):
-        import tempfile
-        with tempfile.TemporaryDirectory() as tmpdir:
-            data_dir = pathlib.Path(tmpdir) / "data"
-            milestones_path = data_dir / "milestones.json"
-            events_path = data_dir / "events.json"
+    def test_facebook_poster_root_points_to_apis_dir(self):
+        """ROOT must resolve to the apis/ directory (not workspace root).
 
-            sample = {
-                "version": "2.0.0",
-                "categories": {
-                    "AI": {"icon": "🤖", "color": "#00ff00", "subcategories": ["general"], "milestones": []}
-                },
-            }
-            events_sample = {"version": "2.0.0", "events": []}
+        Bug: facebook_poster had 3x .parent which resolved outside the repo.
+        """
+        import social.facebook_poster as fb
+        # ROOT / "data" must exist relative to this repo
+        expected = ROOT / "data" / "milestones.json"
+        self.assertEqual(fb.MILESTONES_JSON, expected)
+        expected_history = ROOT / "data" / "fb_post_history.json"
+        self.assertEqual(fb.POST_HISTORY, expected_history)
 
-            milestones_path.parent.mkdir(parents=True, exist_ok=True)
-            milestones_path.write_text(json.dumps(sample))
-            events_path.write_text(json.dumps(events_sample))
+    def test_openai_client_singleton_created_once(self):
+        """Client singleton must be reused across calls, not recreated each time."""
+        import llm.score_milestone as sm
+        sm._reset_router()
+        client1 = sm._get_openai_client()
+        client2 = sm._get_openai_client()
+        self.assertIs(client1, client2)
 
-            self.assertTrue(milestones_path.exists())
-            self.assertTrue(events_path.exists())
-            loaded = json.loads(milestones_path.read_text())
-            self.assertIn("categories", loaded)
+    def test_openai_client_returns_none_on_init_failure(self):
+        """If OpenAI client init raises, _get_openai_client returns None and caches the error.
+
+        Only runs when openai lib is actually installed (CI installs it).
+        """
+        import llm.score_milestone as sm
+        if sm.OpenAI is None:
+            self.skipTest("openai lib not installed")
+        sm._reset_router()
+        with patch.object(sm.OpenAI, "__init__", side_effect=OSError("bad key")):
+            result = sm._get_openai_client()
+        self.assertIsNone(result)
+        # Second call should also return None (cached error)
+        result2 = sm._get_openai_client()
+        self.assertIsNone(result2)
 
 
 class TestYamlSchemas(unittest.TestCase):

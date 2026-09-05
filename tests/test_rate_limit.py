@@ -201,3 +201,32 @@ def test_429_count_accumulates(rl):
     s = rl.get_status("groq")
     assert s["groq"]["total_calls"] == 1
     assert s["groq"]["total_429"] >= 1
+
+
+def test_corrupt_state_file_is_backed_up(rl):
+    """A corrupt state file is renamed (not silently dropped) before reset."""
+    state_file = rl.STATE_FILE
+    state_file.write_text("{ not valid json")
+    before = set(rl.ROOT.iterdir())
+    state = rl._ensure_state()
+    after = set(rl.ROOT.iterdir())
+    new_files = after - before
+    assert len(new_files) == 1, f"Expected exactly one backup file, got: {new_files}"
+    backup = next(iter(new_files))
+    backup_name = backup.name
+    assert ".corrupt-" in backup_name, f"Bad backup name: {backup_name}"
+    assert state.platforms == {}, "State should be reset after corruption"
+    # Original corrupt content is preserved in the backup
+    assert "not valid json" in backup.read_text()
+
+
+def test_cache_set_atomic_no_tmp_persists(rl):
+    """cache_set must not leave a .tmp file behind after write."""
+    rl.cache_set("test_atomic", {"val": 42})
+    tmp_files = list(rl.CACHE_DIR.glob("test_atomic.json.tmp"))
+    json_files = list(rl.CACHE_DIR.glob("test_atomic.json"))
+    assert len(tmp_files) == 0, f".tmp file left behind: {tmp_files}"
+    assert len(json_files) == 1, f"Expected 1 json file, got {json_files}"
+    val = rl.cache_get("test_atomic", max_age_seconds=60)
+    assert val == {"val": 42}
+
