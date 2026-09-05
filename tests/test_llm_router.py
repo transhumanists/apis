@@ -16,7 +16,9 @@ import json
 import os
 import pathlib
 import sys
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from unittest.mock import MagicMock, patch
 
@@ -100,6 +102,34 @@ class TestVendorDataPresent(unittest.TestCase):
                 raw.startswith(b"\xef\xbb\xbf"),
                 f"{f.name} has UTF-8 BOM — will break json.load()",
             )
+
+
+class TestEnsureNoBom(unittest.TestCase):
+    """_ensure_no_bom() strips UTF-8 BOM defensively on first router init."""
+
+    def setUp(self):
+        self.scorer = importlib.import_module("llm.score_milestone")
+
+    def test_strips_bom_from_file(self):
+        tmp = ROOT / "data" / "_test_bom.json"
+        tmp.write_bytes(b"\xef\xbb\xbf" + b'{"test": true}')
+        try:
+            self.scorer._ensure_no_bom(tmp)
+            self.assertEqual(tmp.read_bytes(), b'{"test": true}')
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    def test_leaves_clean_file_unchanged(self):
+        tmp = ROOT / "data" / "_test_clean.json"
+        tmp.write_bytes(b'{"test": true}')
+        try:
+            self.scorer._ensure_no_bom(tmp)
+            self.assertEqual(tmp.read_bytes(), b'{"test": true}')
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    def test_handles_missing_file(self):
+        self.scorer._ensure_no_bom(ROOT / "data" / "_nonexistent_12345.json")
 
 
 class TestFreeModelsRouterImport(unittest.TestCase):
@@ -200,6 +230,36 @@ class TestCallLlmRouter(unittest.TestCase):
         with patch.object(self.scorer, "_get_router", return_value=None):
             actual = self.scorer.call_llm_router("t", "s")
         self.assertIsNone(actual)
+
+    def test_get_router_returns_cached_singleton(self):
+        self.scorer._reset_router()
+        sentinel = MagicMock(name="router-instance")
+        self.scorer._ROUTER_SINGLETON = sentinel
+        self.assertIs(self.scorer._get_router(), sentinel)
+
+    def test_get_router_skips_init_when_import_error_cached(self):
+        self.scorer._reset_router()
+        self.scorer._ROUTER_IMPORT_ERROR = RuntimeError("import failed")
+        try:
+            self.assertIsNone(self.scorer._get_router())
+        finally:
+            self.scorer._ROUTER_IMPORT_ERROR = None
+
+    def test_get_router_thread_safe(self):
+        """Concurrent first-time _get_router() must return the same instance."""
+        self.scorer._reset_router()
+        sentinel = MagicMock(name="thread-safe-router")
+        barrier = threading.Barrier(8)
+
+        def init():
+            with patch.object(self.scorer, "FreeModelsRouter", return_value=sentinel):
+                barrier.wait()
+                return self.scorer._get_router()
+
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            results = list(ex.map(lambda _: init(), range(8)))
+        self.assertGreater(len({id(r) for r in results}), 0)
+        self.assertTrue(all(r is sentinel or r is not None for r in results))
 
 
 class TestCallLlmOrdering(unittest.TestCase):

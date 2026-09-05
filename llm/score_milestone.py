@@ -12,6 +12,7 @@ import os
 import pathlib
 import re
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from hashlib import sha1
@@ -233,6 +234,23 @@ def call_llm_anthropic(title: str, summary: str) -> dict | None:
 
 _ROUTER_SINGLETON = None
 _ROUTER_IMPORT_ERROR = None
+_ROUTER_INIT_LOCK = threading.Lock()
+
+
+def _ensure_no_bom(path: pathlib.Path) -> None:
+    """Strip UTF-8 BOM from path if present.
+
+    Vendored JSON files may arrive with BOM (e.g. when downloaded via
+    gh api | Out-File on Windows). json.load() rejects BOM by default.
+    Defensive: runs once per vendored file on first _get_router() call.
+    """
+    try:
+        raw = path.read_bytes()
+        if raw.startswith(b"\xef\xbb\xbf"):
+            path.write_bytes(raw[3:])
+            log.debug("Stripped UTF-8 BOM from %s", path.name)
+    except OSError:
+        pass
 
 
 def _get_router():
@@ -241,33 +259,39 @@ def _get_router():
     Re-reading 4 JSON files + writing router_state.json per article (200 calls)
     is wasteful and creates lock contention on the state file. Cache the
     router instance for the lifetime of this process.
+
+    Thread-safe: double-check locking pattern. Other threads block on the
+    lock while the first thread completes init, then return the cached value.
     """
     global _ROUTER_SINGLETON, _ROUTER_IMPORT_ERROR, FreeModelsRouter
-    if _ROUTER_SINGLETON is not None:
+    if _ROUTER_SINGLETON is not None or _ROUTER_IMPORT_ERROR is not None:
         return _ROUTER_SINGLETON
-    if _ROUTER_IMPORT_ERROR is not None:
-        return None
-    try:
-        import sys as _sys
-        _sys.path.insert(0, str(HERE))
-        from router import FreeModelsRouter as _RouterClass
-        FreeModelsRouter = _RouterClass
-    except Exception as e:
-        _ROUTER_IMPORT_ERROR = e
-        log.debug("Could not import FreeModelsRouter: %s", e)
-        return None
-    try:
-        _ROUTER_SINGLETON = _RouterClass(
-            providers_json=str(ROUTER_DATA_DIR / "providers.json"),
-            models_json=str(ROUTER_DATA_DIR / "models.json"),
-            free_json=str(ROUTER_DATA_DIR / "free_models.json"),
-            unlimited_json=str(ROUTER_DATA_DIR / "unlimited.json"),
-            state_path=str(ROUTER_DATA_DIR / "router_state.json"),
-        )
-    except Exception as e:
-        log.warning("FreeModelsRouter init failed: %s", e)
-        return None
-    return _ROUTER_SINGLETON
+    with _ROUTER_INIT_LOCK:
+        if _ROUTER_SINGLETON is not None or _ROUTER_IMPORT_ERROR is not None:
+            return _ROUTER_SINGLETON
+        try:
+            import sys as _sys
+            _sys.path.insert(0, str(HERE))
+            from router import FreeModelsRouter as _RouterClass
+        except Exception as e:
+            _ROUTER_IMPORT_ERROR = e
+            log.debug("Could not import FreeModelsRouter: %s", e)
+            return None
+        try:
+            FreeModelsRouter = _RouterClass
+            for _f in ("providers.json", "models.json", "free_models.json", "unlimited.json"):
+                _ensure_no_bom(ROUTER_DATA_DIR / _f)
+            _ROUTER_SINGLETON = _RouterClass(
+                providers_json=str(ROUTER_DATA_DIR / "providers.json"),
+                models_json=str(ROUTER_DATA_DIR / "models.json"),
+                free_json=str(ROUTER_DATA_DIR / "free_models.json"),
+                unlimited_json=str(ROUTER_DATA_DIR / "unlimited.json"),
+                state_path=str(ROUTER_DATA_DIR / "router_state.json"),
+            )
+        except Exception as e:
+            log.warning("FreeModelsRouter init failed: %s", e)
+            return None
+        return _ROUTER_SINGLETON
 
 
 def _reset_router():
