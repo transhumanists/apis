@@ -137,7 +137,8 @@ class TestFreeModelsRouterImport(unittest.TestCase):
 
     def test_router_importable_from_llm(self):
         sys.path.insert(0, str(ROOT / "llm"))
-        from router import FreeModelsRouter  # noqa: F401
+        from router import FreeModelsRouter
+        assert FreeModelsRouter is not None
 
     def test_router_init_with_vendored_data(self):
         sys.path.insert(0, str(ROOT / "llm"))

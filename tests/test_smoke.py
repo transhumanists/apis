@@ -39,7 +39,7 @@ class TestRssFetcher(unittest.TestCase):
     def setUp(self):
         self.patches = []
         # Patch rate_limit calls so rss_fetcher tests don't touch the real budget
-        self.patches.append(patch.object(rss_fetcher, "check_and_consume", lambda p: MagicMock(allowed=True, retry_after=0)))
+        self.patches.append(patch.object(rss_fetcher, "check_and_consume", lambda p: MagicMock(allowed=True, retry_after=0)))  # noqa: E501
         self.patches.append(patch.object(rss_fetcher, "record_response", lambda p, s, e="": None))
         self.patches.append(patch.object(rss_fetcher, "cache_get", lambda k, **kw: None))
         self.patches.append(patch.object(rss_fetcher, "cache_set", lambda k, v=None, **kw: None))
@@ -329,8 +329,12 @@ class TestFacebookPoster(unittest.TestCase):
     def test_build_message(self):
         ms = {
             "categories": {
-                "Biotechnology": {"milestones": [{"value": 94.2, "unit": "%", "source": "Broad", "date": "2026-08-25"}]},
-                "Energy": {"milestones": [{"value": 17.6, "unit": "Q", "source": "NIF", "date": "2026-08-20"}]},
+                "Biotechnology": {
+                    "milestones": [{"value": 94.2, "unit": "%", "source": "Broad", "date": "2026-08-25"}]
+                },
+                "Energy": {
+                    "milestones": [{"value": 17.6, "unit": "Q", "source": "NIF", "date": "2026-08-20"}]
+                },
             }
         }
         msg = facebook_poster.build_message(ms)

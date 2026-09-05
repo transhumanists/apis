@@ -16,14 +16,19 @@ import threading
 import time
 from datetime import datetime, timezone
 from hashlib import sha1
+from typing import Any
+
+import requests
 
 try:
-    from openai import OpenAI
+    from openai import OpenAI as _OpenAI_class
+    OpenAI: Any = _OpenAI_class
 except ImportError:
     OpenAI = None
 
 try:
-    import anthropic
+    import anthropic as _anthropic_module
+    anthropic: Any = _anthropic_module
 except ImportError:
     anthropic = None
 
@@ -51,7 +56,7 @@ ROUTER_DATA_DIR = ROOT / "data"
 # unavailable (e.g. vendored data missing).
 FreeModelsRouter = None
 
-CATEGORY_DEFAULTS: dict[str, dict] = {
+CATEGORY_DEFAULTS: dict[str, dict[str, str]] = {
     "Biotechnology":    {"icon": "🧬", "color": "#00e676"},
     "Computing & AGI":  {"icon": "🧠", "color": "#448aff"},
     "Quantum Physics":  {"icon": "⚛️",  "color": "#b388ff"},
@@ -78,7 +83,7 @@ DEFAULT_SUBCATEGORIES: dict[str, list[str]] = {
                           "air_defense", "naval", "cyber_ops", "drone_swarm", "hypersonic_glide"],
 }
 
-KNOWN_GEOCODES: dict[str, dict] = {
+KNOWN_GEOCODES: dict[str, dict[str, object]] = {
     "broad institute": {"lat": 42.3375, "lon": -71.1061, "name": "Cambridge, MA, USA"},
     "stanford":        {"lat": 37.4321, "lon": -122.1665, "name": "Stanford, CA, USA"},
     "nif":             {"lat": 37.6881, "lon": -121.7045, "name": "Livermore, CA, USA"},
@@ -118,7 +123,7 @@ KNOWN_GEOCODES: dict[str, dict] = {
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("score_milestone")
 
-CATEGORIES: dict[str, dict] = {
+CATEGORIES: dict[str, dict[str, Any]] = {
     name: {
         "icon": CATEGORY_DEFAULTS.get(name, {}).get("icon", "📌"),
         "color": CATEGORY_DEFAULTS.get(name, {}).get("color", "#aaaaaa"),
@@ -132,7 +137,7 @@ DYNAMIC_SUBCATEGORIES: dict[str, list[str]] = {
 }
 
 
-def get_geocode(source: str) -> dict:
+def get_geocode(source: str) -> dict[str, Any]:
     s = (source or "").lower()
     for key, geo in KNOWN_GEOCODES.items():
         if key in s:
@@ -180,10 +185,10 @@ If NOT a milestone, output: {"is_milestone": false}
 Return ONLY the JSON object. No markdown fences."""
 
 
-def call_llm_openai(title: str, summary: str) -> dict | None:
-    if not OPENAI_API_KEY or not OpenAI:
+def call_llm_openai(title: str, summary: str) -> Any | None:
+    if not OPENAI_API_KEY or OpenAI is None:
         return None
-    raw = ""
+    raw: str = ""
     try:
         client = OpenAI(api_key=OPENAI_API_KEY)
         resp = client.chat.completions.create(
@@ -196,20 +201,20 @@ def call_llm_openai(title: str, summary: str) -> dict | None:
                 {"role": "user", "content": f"Title: {title}\n\nSummary: {summary[:1500]}"},
             ],
         )
-        raw = resp.choices[0].message.content.strip()
+        raw = (resp.choices[0].message.content or "").strip()
         raw = re.sub(r"^```json\s*", "", raw, flags=re.IGNORECASE)
         raw = re.sub(r"```\s*$", "", raw, flags=re.IGNORECASE)
         return json.loads(raw)
     except json.JSONDecodeError as e:
         log.warning("LLM returned malformed JSON: %s — %s", e, raw[:200])
         return None
-    except Exception as e:
+    except (requests.RequestException, ValueError) as e:
         log.warning("OpenAI call failed: %s", e)
         return None
 
 
-def call_llm_anthropic(title: str, summary: str) -> dict | None:
-    if not ANTHROPIC_API_KEY or not anthropic:
+def call_llm_anthropic(title: str, summary: str) -> Any | None:
+    if not ANTHROPIC_API_KEY or anthropic is None:
         return None
     try:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -227,7 +232,7 @@ def call_llm_anthropic(title: str, summary: str) -> dict | None:
     except json.JSONDecodeError as e:
         log.warning("Anthropic returned malformed JSON: %s", e)
         return None
-    except Exception as e:
+    except (requests.RequestException, ValueError) as e:
         log.warning("Anthropic call failed: %s", e)
         return None
 
@@ -253,7 +258,7 @@ def _ensure_no_bom(path: pathlib.Path) -> None:
         pass
 
 
-def _get_router():
+def _get_router() -> Any:
     """Lazy-init FreeModelsRouter singleton.
 
     Re-reading 4 JSON files + writing router_state.json per article (200 calls)
@@ -273,7 +278,7 @@ def _get_router():
             import sys as _sys
             _sys.path.insert(0, str(HERE))
             from router import FreeModelsRouter as _RouterClass
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError, SyntaxError) as e:
             _ROUTER_IMPORT_ERROR = e
             log.debug("Could not import FreeModelsRouter: %s", e)
             return None
@@ -288,13 +293,13 @@ def _get_router():
                 unlimited_json=str(ROUTER_DATA_DIR / "unlimited.json"),
                 state_path=str(ROUTER_DATA_DIR / "router_state.json"),
             )
-        except Exception as e:
+        except (ValueError, TypeError, OSError) as e:
             log.warning("FreeModelsRouter init failed: %s", e)
             return None
         return _ROUTER_SINGLETON
 
 
-def _reset_router():
+def _reset_router() -> None:
     """Test hook: clear the cached router so next call re-inits."""
     global _ROUTER_SINGLETON, _ROUTER_IMPORT_ERROR, FreeModelsRouter
     _ROUTER_SINGLETON = None
@@ -302,7 +307,7 @@ def _reset_router():
     FreeModelsRouter = None
 
 
-def call_llm_router(title: str, summary: str) -> dict | None:
+def call_llm_router(title: str, summary: str) -> Any | None:
     router = _get_router()
     if router is None:
         return None
@@ -334,7 +339,7 @@ def call_llm_router(title: str, summary: str) -> dict | None:
         return None
 
 
-def call_llm(title: str, summary: str) -> dict | None:
+def call_llm(title: str, summary: str) -> Any | None:
     if LLM_ROUTER_ENABLED:
         result = call_llm_router(title, summary)
         if result:
@@ -346,7 +351,7 @@ def call_llm(title: str, summary: str) -> dict | None:
     return call_llm_anthropic(title, summary)
 
 
-def normalize_value(value, unit: str | None) -> float:
+def normalize_value(value: Any, unit: str | None) -> float:
     if value is None:
         return 0.0
     try:
@@ -373,7 +378,7 @@ def normalize_value(value, unit: str | None) -> float:
     return v
 
 
-def rank_milestone(milestone: dict) -> float:
+def rank_milestone(milestone: dict[str, Any]) -> float:
     score = 0.0
     if milestone.get("is_record"):
         score += 100
@@ -409,11 +414,13 @@ def ensure_subcategory(category: str, subcategory: str) -> None:
     if subcategory not in DYNAMIC_SUBCATEGORIES[category]:
         log.info("Auto-discovered new subcategory: %s/%s — adding", category, subcategory)
         DYNAMIC_SUBCATEGORIES[category].append(subcategory)
-    if category in CATEGORIES and subcategory not in CATEGORIES[category]["subcategories"]:
-        CATEGORIES[category]["subcategories"].append(subcategory)
+    cat_entry: dict[str, Any] | None = CATEGORIES.get(category)
+    if cat_entry is not None and subcategory not in cat_entry.get("subcategories", []):
+        subs: list[str] = cat_entry["subcategories"]
+        subs.append(subcategory)
 
 
-def score_article(article: dict) -> dict | None:
+def score_article(article: dict[str, Any]) -> dict[str, Any] | None:
     if not LLM_ROUTER_ENABLED and not (OPENAI_API_KEY or ANTHROPIC_API_KEY):
         log.error("No LLM API key set — set OPENAI_API_KEY or ANTHROPIC_API_KEY (or enable LLM_ROUTER_ENABLED=true with at least one free provider key)")
         sys.exit(1)
@@ -466,8 +473,8 @@ def score_article(article: dict) -> dict | None:
     }
 
 
-def build_categories_output() -> dict:
-    output_categories = {}
+def build_categories_output() -> dict[str, Any]:
+    output_categories: dict[str, Any] = {}
     for cat_name, cat_data in CATEGORIES.items():
         subcats = DYNAMIC_SUBCATEGORIES.get(cat_name, cat_data.get("subcategories", []))
         output_categories[cat_name] = {
@@ -480,7 +487,7 @@ def build_categories_output() -> dict:
     return output_categories
 
 
-def generate_milestones_md(categories: dict, existing_by_subcat: dict) -> str:
+def generate_milestones_md(categories: dict[str, Any], existing_by_subcat: dict[str, Any]) -> str:  # noqa: ARG001
     now = _utc_now()
     lines = [
         "# Human Progress Milestones",
@@ -526,7 +533,7 @@ def generate_milestones_md(categories: dict, existing_by_subcat: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def main():
+def main() -> None:
     if not IN_FILE.exists():
         log.error("Missing input file: %s", IN_FILE)
         sys.exit(1)
@@ -540,21 +547,21 @@ def main():
     articles = raw.get("articles", []) if isinstance(raw, dict) else raw
     log.info("Loaded %d articles", len(articles))
 
-    existing_by_subcat: dict = {}
+    existing_by_subcat: dict[str, Any] = {}
     if EXISTING.exists():
         try:
             existing = json.loads(EXISTING.read_text())
             for cat_name, cat_data in existing.get("categories", {}).items():
                 for sub_list in cat_data.get("subcategories", []):
                     existing_by_subcat[f"{cat_name}/{sub_list}"] = cat_data.get("milestones", [])
-        except Exception as e:
+        except (OSError, ValueError, json.JSONDecodeError) as e:
             log.warning("Could not load existing milestones: %s", e)
 
     articles_sorted = sorted(articles, key=lambda a: -a.get("weight", 0))
     to_score = articles_sorted[:MAX_ARTICLES_TO_SCORE]
     log.info("Scoring top %d articles (router=%s)", len(to_score), LLM_ROUTER_ENABLED)
 
-    all_milestones: list[dict] = []
+    all_milestones: list[dict[str, Any]] = []
     for i, article in enumerate(to_score):
         if i % 20 == 0:
             log.info("Scoring %d/%d...", i, len(to_score))
@@ -566,14 +573,14 @@ def main():
 
     log.info("Found %d candidate milestones across %d categories", len(all_milestones), len(CATEGORIES))
 
-    by_subcat: dict = {}
+    by_subcat: dict[str, Any] = {}
     for m in all_milestones:
         key = f"{m['category']}/{m['subcategory']}"
         if key not in by_subcat or rank_milestone(m) > rank_milestone(by_subcat[key]):
             by_subcat[key] = m
 
     output_categories = build_categories_output()
-    events = []
+    events: list[dict[str, Any]] = []
 
     for cat_name, cat_data in output_categories.items():
         for sub in cat_data.get("subcategories", []):
