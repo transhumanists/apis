@@ -1,0 +1,60 @@
+{
+  "_meta": {
+    "criteria": "Zero-cost tier; rate-limited but no payment ever required.",
+    "updated": "2026-08-29",
+    "schema": "1.0"
+  },
+  "by_country": {
+    "US": [
+      "groq:llama-3.1-8b-instant",
+      "groq:llama-3.3-70b-versatile",
+      "groq:whisper-large-v3-turbo",
+      "cerebras:llama-3.3-70b",
+      "cerebras:qwen-2.5-72b-instruct",
+      "sambanova:Meta-Llama-3.1-70B-Instruct",
+      "github_models:Phi-3.5-mini-instruct",
+      "github_models:Phi-3.5-MoE-instruct",
+      "github_models:llama-3.2-11B-Vision-Instruct",
+      "github_models:gpt-4o-mini",
+      "cloudflare:@cf/meta/llama-3.1-8b-instruct",
+      "cloudflare:@cf/qwen/qwen2.5-coder-32b-instruct",
+      "nvidia:meta/llama-3.1-70b-instruct",
+      "nvidia:nvidia/llama-3.1-nemotron-70b-instruct",
+      "cohere:command-r",
+      "cohere:command-r-plus",
+      "google_ai:gemini-2.0-flash-exp",
+      "google_ai:gemini-1.5-flash-8b",
+      "openrouter:meta-llama/llama-3.3-70b:free",
+      "openrouter:qwen/qwen-2.5-72b-instruct:free",
+      "openrouter:google/gemini-2.0-flash-exp:free",
+      "openrouter:deepseek/deepseek-chat-v3:free",
+      "huggingface:meta-llama/Llama-3.2-3B-Instruct",
+      "huggingface:Qwen/Qwen2.5-Coder-7B-Instruct"
+    ],
+    "LOCAL": [
+      "ollama:llama3.2:3b",
+      "ollama:qwen2.5:7b",
+      "ollama:deepseek-coder-v2:16b",
+      "ollama:phi3.5:3.8b",
+      "ollama:mistral:7b",
+      "ollama:gemma2:9b"
+    ]
+  },
+  "by_provider_count": {
+    "groq": 3,
+    "cerebras": 2,
+    "sambanova": 1,
+    "github_models": 4,
+    "cloudflare": 2,
+    "nvidia": 2,
+    "cohere": 2,
+    "google_ai": 2,
+    "openrouter": 4,
+    "ollama": 6,
+    "huggingface": 2
+  },
+  "total_models": 30,
+  "total_countries": 2,
+  "public_mirror_safe": true
+}
+
