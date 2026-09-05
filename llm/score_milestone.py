@@ -23,7 +23,7 @@ import requests
 try:
     from openai import OpenAI
 except ImportError:
-    OpenAI = None  # type: ignore[misc,assignment]
+    OpenAI = None  # type: ignore[assignment]
 
 try:
     import anthropic
