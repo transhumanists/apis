@@ -21,12 +21,14 @@ from typing import Any
 import requests
 
 try:
-    from openai import OpenAI
+    from openai import OpenAI as _OpenAI_class
+    OpenAI: Any = _OpenAI_class
 except ImportError:
-    OpenAI = None  # type: ignore[assignment,misc]
+    OpenAI = None
 
 try:
-    import anthropic
+    import anthropic as _anthropic_module
+    anthropic: Any = _anthropic_module
 except ImportError:
     anthropic = None
 
