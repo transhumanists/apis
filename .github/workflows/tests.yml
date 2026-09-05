@@ -22,3 +22,64 @@ jobs:
       - run: python -m ruff check llm/ scrapers/ tests/
       - run: python -m mypy llm/score_milestone.py scrapers/rss_fetcher.py --config-file mypy.ini
       - run: python -m pytest tests/ -v
+
+  llm-action-smoke:
+    name: LLM action smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run llm-action (verifies action.yml + data files are wired correctly)
+        id: llm-router
+        uses: neohiro/llm-action@v1
+        with:
+          llm-router-enabled: true
+          llm-model: gpt-4o
+          data-dir: data
+          python-version: '3.12'
+          cache-pip: false
+
+      - name: Verify vendored JSON data files
+        run: |
+          set -euo pipefail
+          for f in providers.json models.json free_models.json unlimited.json; do
+            if [ ! -s "${{ steps.llm-router.outputs.data-dir }}/$f" ]; then
+              echo "::error::Missing or empty $f in ${{ steps.llm-router.outputs.data-dir }}"
+              exit 1
+            fi
+            python3 -c "import json; json.load(open('${{ steps.llm-router.outputs.data-dir }}/$f'))" || {
+              echo "::error::$f is not valid JSON"
+              exit 1
+            }
+          done
+          echo "All 4 router JSON data files present and valid"
+
+      - name: Verify environment variables were exported
+        env:
+          EXPECTED_ROUTER_DIR: ${{ steps.llm-router.outputs.router-module-path }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ACTION_ROUTER_DIR" ]; then
+            echo "::error::ACTION_ROUTER_DIR not exported"
+            exit 1
+          fi
+          if [ -z "$ACTION_DATA_DIR" ]; then
+            echo "::error::ACTION_DATA_DIR not exported"
+            exit 1
+          fi
+          if [ "$ACTION_ROUTER_DIR" != "$EXPECTED_ROUTER_DIR" ]; then
+            echo "::error::ACTION_ROUTER_DIR=$ACTION_ROUTER_DIR != $EXPECTED_ROUTER_DIR"
+            exit 1
+          fi
+          if [ "$LLM_ROUTER_ENABLED" != "true" ]; then
+            echo "::error::LLM_ROUTER_ENABLED=$LLM_ROUTER_ENABLED (expected 'true')"
+            exit 1
+          fi
+          echo "Env vars: ACTION_DATA_DIR=$ACTION_DATA_DIR ACTION_ROUTER_DIR=$ACTION_ROUTER_DIR LLM_ROUTER_ENABLED=$LLM_ROUTER_ENABLED"
+
+      - name: Verify available providers output
+        run: |
+          if [ "${{ steps.llm-router.outputs.available-providers }}" != "none" ]; then
+            echo "::error::Expected 'none' (no keys passed), got '${{ steps.llm-router.outputs.available-providers }}'"
+            exit 1
+          fi
+          echo "available-providers=${{ steps.llm-router.outputs.available-providers }}"
