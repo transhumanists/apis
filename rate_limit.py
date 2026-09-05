@@ -18,11 +18,15 @@ Design:
 - Thread-safe via simple lock (we never expect multi-thread writers)
 """
 import json
+import logging
 import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+
+log = logging.getLogger("rate_limit")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 ROOT = Path(__file__).parent
 STATE_FILE = ROOT / "data" / "rate_limit_state.json"
@@ -87,7 +91,21 @@ def _ensure_state() -> _State:
         s = _State()
         s.platforms = d.get("platforms", {})
         return s
-    except (json.JSONDecodeError, KeyError):
+    except (json.JSONDecodeError, KeyError) as e:
+        # Preserve the corrupt file so the user can recover counters manually.
+        # If we silently reset, an interrupted write would lose the entire budget history.
+        try:
+            backup = STATE_FILE.with_suffix(
+                f".corrupt-{int(time.time())}.json"
+            )
+            backup.write_bytes(STATE_FILE.read_bytes())
+            log.warning(
+                "Corrupt state file at %s — backed up to %s and resetting: %s",
+                STATE_FILE, backup.name, e,
+            )
+        except OSError as be:
+            log.warning("Corrupt state file at %s (resetting): %s [backup failed: %s]",
+                        STATE_FILE, e, be)
         return _State()
 
 
@@ -303,7 +321,9 @@ def cache_get(key: str, max_age_seconds: int) -> dict | None:
 def cache_set(key: str, value: dict) -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     p = CACHE_DIR / f"{key}.json"
-    p.write_text(json.dumps({"_cached_at": int(time.time()), "value": value}))
+    tmp = CACHE_DIR / f"{key}.json.tmp"
+    tmp.write_text(json.dumps({"_cached_at": int(time.time()), "value": value}))
+    tmp.replace(p)
 
 
 def cache_invalidate(key: str) -> None:

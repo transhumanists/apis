@@ -17,7 +17,7 @@ try:
 except ImportError:
     requests = None
 
-ROOT = pathlib.Path(__file__).parent.parent.parent
+ROOT = pathlib.Path(__file__).parent.parent
 MILESTONES_JSON = ROOT / "data" / "milestones.json"
 POST_HISTORY = ROOT / "data" / "fb_post_history.json"
 GRAPH_API_URL = "https://graph.facebook.com/v19.0"

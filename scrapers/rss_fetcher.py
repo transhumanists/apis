@@ -175,9 +175,19 @@ def fetch_feed(feed_def: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dic
             record_response("rss_generic", resp.status_code)
 
             if resp.status_code == 429:
+                # Prefer the server-provided Retry-After header; fall back to the
+                # rate_limit module's tracked retry_after. Cap at 60s to avoid
+                # 24h Retry-After blocks in the worst case.
+                header_retry = resp.headers.get("Retry-After", "")
+                try:
+                    header_secs = int(header_retry)
+                except (TypeError, ValueError):
+                    header_secs = 0
+                retry_secs = header_secs or res.retry_after
                 log.warning("RSS 429 %s (attempt %d) — backing off %ds",
-                            url, attempt + 1, res.retry_after)
-                time.sleep(min(res.retry_after, 60))
+                            url, attempt + 1, retry_secs)
+                if retry_secs > 0:
+                    time.sleep(min(retry_secs, 60))
                 continue
 
             resp.raise_for_status()

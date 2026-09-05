@@ -190,7 +190,9 @@ def call_llm_openai(title: str, summary: str) -> Any | None:
         return None
     raw: str = ""
     try:
-        client = OpenAI(api_key=OPENAI_API_KEY)
+        client = _get_openai_client()
+        if client is None:
+            return None
         resp = client.chat.completions.create(
             model="gpt-4o",
             temperature=0.0,
@@ -208,7 +210,7 @@ def call_llm_openai(title: str, summary: str) -> Any | None:
     except json.JSONDecodeError as e:
         log.warning("LLM returned malformed JSON: %s — %s", e, raw[:200])
         return None
-    except (requests.RequestException, ValueError) as e:
+    except (requests.RequestException, ValueError, OSError) as e:
         log.warning("OpenAI call failed: %s", e)
         return None
 
@@ -217,7 +219,9 @@ def call_llm_anthropic(title: str, summary: str) -> Any | None:
     if not ANTHROPIC_API_KEY or anthropic is None:
         return None
     try:
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        client = _get_anthropic_client()
+        if client is None:
+            return None
         resp = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=MAX_TOKENS,
@@ -232,9 +236,57 @@ def call_llm_anthropic(title: str, summary: str) -> Any | None:
     except json.JSONDecodeError as e:
         log.warning("Anthropic returned malformed JSON: %s", e)
         return None
-    except (requests.RequestException, ValueError) as e:
+    except (requests.RequestException, ValueError, OSError) as e:
         log.warning("Anthropic call failed: %s", e)
         return None
+
+
+_OPENAI_CLIENT_SINGLETON: Any = None
+_OPENAI_CLIENT_INIT_ERROR: Exception | None = None
+_ANTHROPIC_CLIENT_SINGLETON: Any = None
+_ANTHROPIC_CLIENT_INIT_ERROR: Exception | None = None
+
+
+def _get_openai_client() -> Any:
+    """Lazy-init OpenAI client singleton. Reused across all articles in a run."""
+    global _OPENAI_CLIENT_SINGLETON, _OPENAI_CLIENT_INIT_ERROR
+    if _OPENAI_CLIENT_SINGLETON is not None:
+        return _OPENAI_CLIENT_SINGLETON
+    if _OPENAI_CLIENT_INIT_ERROR is not None:
+        return None
+    try:
+        _OPENAI_CLIENT_SINGLETON = OpenAI(api_key=OPENAI_API_KEY)
+        return _OPENAI_CLIENT_SINGLETON
+    except (requests.RequestException, ValueError, TypeError, OSError) as e:
+        _OPENAI_CLIENT_INIT_ERROR = e
+        log.warning("OpenAI client init failed: %s", e)
+        return None
+
+
+def _get_anthropic_client() -> Any:
+    """Lazy-init Anthropic client singleton. Reused across all articles in a run."""
+    global _ANTHROPIC_CLIENT_SINGLETON, _ANTHROPIC_CLIENT_INIT_ERROR
+    if _ANTHROPIC_CLIENT_SINGLETON is not None:
+        return _ANTHROPIC_CLIENT_SINGLETON
+    if _ANTHROPIC_CLIENT_INIT_ERROR is not None:
+        return None
+    try:
+        _ANTHROPIC_CLIENT_SINGLETON = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        return _ANTHROPIC_CLIENT_SINGLETON
+    except (requests.RequestException, ValueError, TypeError, OSError) as e:
+        _ANTHROPIC_CLIENT_INIT_ERROR = e
+        log.warning("Anthropic client init failed: %s", e)
+        return None
+
+
+def _reset_clients() -> None:
+    """Test hook: clear cached clients so next call re-inits."""
+    global _OPENAI_CLIENT_SINGLETON, _OPENAI_CLIENT_INIT_ERROR
+    global _ANTHROPIC_CLIENT_SINGLETON, _ANTHROPIC_CLIENT_INIT_ERROR
+    _OPENAI_CLIENT_SINGLETON = None
+    _OPENAI_CLIENT_INIT_ERROR = None
+    _ANTHROPIC_CLIENT_SINGLETON = None
+    _ANTHROPIC_CLIENT_INIT_ERROR = None
 
 
 _ROUTER_SINGLETON = None
@@ -300,11 +352,17 @@ def _get_router() -> Any:
 
 
 def _reset_router() -> None:
-    """Test hook: clear the cached router so next call re-inits."""
+    """Test hook: clear the cached router and LLM clients so next call re-inits."""
     global _ROUTER_SINGLETON, _ROUTER_IMPORT_ERROR, FreeModelsRouter
+    global _OPENAI_CLIENT_SINGLETON, _OPENAI_CLIENT_INIT_ERROR
+    global _ANTHROPIC_CLIENT_SINGLETON, _ANTHROPIC_CLIENT_INIT_ERROR
     _ROUTER_SINGLETON = None
     _ROUTER_IMPORT_ERROR = None
     FreeModelsRouter = None
+    _OPENAI_CLIENT_SINGLETON = None
+    _OPENAI_CLIENT_INIT_ERROR = None
+    _ANTHROPIC_CLIENT_SINGLETON = None
+    _ANTHROPIC_CLIENT_INIT_ERROR = None
 
 
 def call_llm_router(title: str, summary: str) -> Any | None:
@@ -448,7 +506,7 @@ def score_article(article: dict[str, Any]) -> dict[str, Any] | None:
         ensure_subcategory(category, "general")
 
     source = result.get("source") or article.get("source", "Unknown")
-    date = result.get("date") or article.get("published", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    date = result.get("date") or article.get("published") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     geo = get_geocode(source)
 
     safe_cat = category or "Unknown"
