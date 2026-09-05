@@ -112,7 +112,7 @@ def should_post() -> bool:
         if last == _utc_date():
             log.info("Already posted today (%s) — skipping.", last)
             return False
-    except Exception:
+    except (OSError, ValueError, json.JSONDecodeError):
         pass
     return True
 
@@ -148,7 +148,7 @@ def main():
         milestones = json.loads(MILESTONES_JSON.read_text())
     except json.JSONDecodeError as e:
         log.error("Corrupt milestones.json: %s", e)
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
     message = build_message(milestones)
 
