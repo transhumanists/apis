@@ -621,6 +621,7 @@ def main() -> None:
         "events": events,
     }
 
+    OUT_MILESTONES.parent.mkdir(parents=True, exist_ok=True)
     OUT_MILESTONES.write_text(json.dumps(output, indent=2, ensure_ascii=False))
     OUT_EVENTS.write_text(json.dumps(events_out, indent=2, ensure_ascii=False))
 

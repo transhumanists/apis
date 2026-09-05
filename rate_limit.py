@@ -71,7 +71,10 @@ class RateLimitResult:
 
 @dataclass
 class _State:
-    platforms: dict = field(default_factory=dict)  # {platform: {minute_window_start, used_minute, day_date, used_day, last_reset, total_calls, total_429, total_5xx, last_error_at, next_allowed_after}}
+    # Per-platform state fields:
+    # minute_window_start, used_minute, day_date, used_day, last_reset,
+    # total_calls, total_429, total_5xx, last_error_at, next_allowed_after
+    platforms: dict = field(default_factory=dict)
 
 _lock = threading.Lock()
 
@@ -196,7 +199,7 @@ def check_and_consume(platform: str) -> RateLimitResult:
         )
 
 
-def record_response(platform: str, status: int, error: str = "") -> None:
+def record_response(platform: str, status: int, error: str = "") -> None:  # noqa: ARG001
     """Update backoff window based on platform response.
 
     429 -> set next_allowed_after = now + backoff

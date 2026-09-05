@@ -8,6 +8,7 @@ Outputs feeds_health.json.
 import json
 import logging
 import pathlib
+import random
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -149,7 +150,6 @@ def main():
         urls_to_check.append({"url": d["url"], "category": d.get("category", "Unknown"), "is_dead": True})
 
     if FEEDS:
-        import random
         random.seed(42)
         sample = random.sample(FEEDS, max(1, len(FEEDS) // 3))
         for f in sample:

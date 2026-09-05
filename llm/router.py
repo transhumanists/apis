@@ -13,6 +13,8 @@ import json
 import logging
 import os
 import time
+import urllib.error
+import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -332,9 +334,6 @@ class FreeModelsRouter:
         if not api_key and choice.provider not in ("ollama",):
             raise RuntimeError(f"No API key for {choice.provider}: set {provider.get('env_key')}")
 
-        import urllib.error
-        import urllib.request
-
         model_id = choice.model.split(":", 1)[1] if ":" in choice.model else choice.model
 
         payload = {
@@ -371,9 +370,6 @@ class FreeModelsRouter:
         messages: list[dict],
         max_tokens: int | None,
     ) -> str:
-        import urllib.error
-        import urllib.request
-
         base_url = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
         payload = {"model": model, "messages": messages}
         if max_tokens:
