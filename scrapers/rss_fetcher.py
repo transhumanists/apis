@@ -251,6 +251,8 @@ def fetch_feed(feed_def: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dic
         except requests.Timeout:
             last_error = "Timeout"
             log.warning("Timeout %s (attempt %d/%d)", url, attempt + 1, FETCH_RETRIES)
+            if attempt < FETCH_RETRIES - 1:
+                time.sleep(2 ** attempt)
         except requests.HTTPError as e:
             resp_obj = getattr(e, "response", None)
             status = resp_obj.status_code if resp_obj is not None else 0
@@ -260,6 +262,8 @@ def fetch_feed(feed_def: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dic
                 errors.append({"url": url, "error": last_error, "status": "dead"})
                 error_logged = True
                 break
+            if status >= 500 and attempt < FETCH_RETRIES - 1:
+                time.sleep(2 ** attempt)
         except requests.RequestException as e:
             last_error = str(e)
             log.warning("Error %s: %s (attempt %d/%d)", url, e, attempt + 1, FETCH_RETRIES)
