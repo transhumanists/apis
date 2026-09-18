@@ -40,7 +40,7 @@ jobs:
         run: python self_healer/source_checker.py
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: scraped-data
           path: |
@@ -102,7 +102,7 @@ jobs:
       - name: Run scoring
         run: python llm/score_milestone.py
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: scored-data
           path: |
