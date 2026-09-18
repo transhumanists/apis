@@ -162,3 +162,5 @@ context. Update it when adding or changing a tool.
 ## 📄 License
 
 MIT
+
+[![Visitors](https://api.visitorbadge.io/api/visitors?path=github.com/transhumanists/apis&label=Visitors&countColor=%23263759)](https://visitorbadge.io/status?path=github.com/transhumanists/apis)
