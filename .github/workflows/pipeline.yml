@@ -63,7 +63,7 @@ jobs:
         run: pip install -r requirements.txt --quiet
 
       - name: Download scraped data
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: scored-data
           path: data
@@ -123,7 +123,7 @@ jobs:
           python-version: '3.12'
       - run: pip install requests --quiet
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: scored-data
           path: data
@@ -148,7 +148,7 @@ jobs:
           token: ${{ secrets.MILESTONES_DISPATCH_TOKEN || secrets.GITHUB_TOKEN }}
           ref: main
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: scored-data
           path: data
@@ -182,7 +182,7 @@ jobs:
           token: ${{ secrets.MILESTONES_DISPATCH_TOKEN || secrets.GITHUB_TOKEN }}
           ref: main
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: scored-data
           path: data
