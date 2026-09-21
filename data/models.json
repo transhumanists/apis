@@ -59,6 +59,7 @@
       "tpm": 6000
     },
     "suitable_for": [
+      "classify",
       "reasoning",
       "code-review",
       "summarize",
@@ -115,6 +116,7 @@
       "tpm": 2000
     },
     "suitable_for": [
+      "classify",
       "reasoning",
       "summarize",
       "chat",
@@ -149,6 +151,7 @@
       "tpm": 2000
     },
     "suitable_for": [
+      "classify",
       "reasoning",
       "math",
       "code",
@@ -183,6 +186,7 @@
       "tpm": 1000
     },
     "suitable_for": [
+      "classify",
       "reasoning",
       "summarize",
       "code"
@@ -423,6 +427,7 @@
       "tpm": 50000
     },
     "suitable_for": [
+      "classify",
       "rag",
       "summarize",
       "chat",
@@ -448,6 +453,7 @@
     "tier": "free",
     "free_until": "ongoing",
     "suitable_for": [
+      "classify",
       "rag",
       "reasoning",
       "code",
@@ -480,6 +486,7 @@
       "tpd": 1500
     },
     "suitable_for": [
+      "classify",
       "reasoning",
       "vision",
       "audio",
@@ -539,6 +546,7 @@
     "tier": "free",
     "free_until": "ongoing",
     "suitable_for": [
+      "classify",
       "reasoning",
       "code",
       "chat"
@@ -563,6 +571,7 @@
     "tier": "free",
     "free_until": "ongoing",
     "suitable_for": [
+      "classify",
       "reasoning",
       "math",
       "code",
@@ -591,6 +600,7 @@
     "tier": "free",
     "free_until": "ongoing",
     "suitable_for": [
+      "classify",
       "reasoning",
       "vision",
       "long-context"
@@ -615,6 +625,7 @@
     "tier": "free",
     "free_until": "ongoing",
     "suitable_for": [
+      "classify",
       "reasoning",
       "code",
       "math",
@@ -782,4 +793,3 @@
     "public_mirror_safe": true
   }
 }
-
