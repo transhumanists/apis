@@ -59,9 +59,6 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Install consumer dependencies
-        run: pip install -r requirements.txt --quiet
-
       - name: Download scraped data
         uses: actions/download-artifact@v8
         with:
@@ -98,6 +95,11 @@ jobs:
           data-dir: data
           python-version: '3.12'
           cache-pip: false
+
+      - name: Install consumer dependencies
+        # llm-action's setup-python changes the interpreter on PATH, so install
+        # with THAT python (the one that runs score_milestone.py below).
+        run: python -m pip install -r requirements.txt --quiet
 
       - name: Run scoring
         run: python llm/score_milestone.py
