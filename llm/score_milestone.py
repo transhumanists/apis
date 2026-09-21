@@ -44,7 +44,7 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 LLM_ROUTER_ENABLED = os.environ.get("LLM_ROUTER_ENABLED", "true").lower() in ("1", "true", "yes")
 MAX_TOKENS = 1024
-MAX_ARTICLES_TO_SCORE = 200
+MAX_ARTICLES_TO_SCORE = 45
 RATE_LIMIT_DELAY_ARTICLES = 50
 
 # Router data files (vendored from neohiro/LLM). When LLM_ROUTER_ENABLED=true,

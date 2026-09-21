@@ -2,7 +2,9 @@ name: Pipeline (scrape → score → post → commit)
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    # One run per day: the router's free tier is OpenRouter's 50-free-
+    # requests/day allowance (account below the $10 funding threshold).
+    - cron: '0 6 * * *'
   workflow_dispatch:
   repository_dispatch:
     types: [run-scrape]
