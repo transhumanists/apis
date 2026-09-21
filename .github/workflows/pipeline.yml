@@ -102,6 +102,10 @@ jobs:
         run: python -m pip install -r requirements.txt --quiet
 
       - name: Run scoring
+        env:
+          # github_models is the only free provider whose key the router can
+          # get from the runner itself; nothing else is reliably configured.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python llm/score_milestone.py
 
       - name: Guard against publishing an empty dataset
