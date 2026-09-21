@@ -3,7 +3,8 @@
     "updated": "2026-08-29",
     "schema": "1.0",
     "note": "country is ISO 3166-1 alpha-2 or 'LOCAL' for self-hosted",
-    "public_mirror_safe": true
+    "public_mirror_safe": true,
+    "suitable_for": []
   },
   "groq:llama-3.1-8b-instant": {
     "provider": "groq",
@@ -25,7 +26,6 @@
     },
     "suitable_for": [
       "summarize",
-      "classify",
       "extract",
       "translate",
       "chat"
@@ -59,7 +59,6 @@
       "tpm": 6000
     },
     "suitable_for": [
-      "classify",
       "reasoning",
       "code-review",
       "summarize",
@@ -116,7 +115,6 @@
       "tpm": 2000
     },
     "suitable_for": [
-      "classify",
       "reasoning",
       "summarize",
       "chat",
@@ -151,7 +149,6 @@
       "tpm": 2000
     },
     "suitable_for": [
-      "classify",
       "reasoning",
       "math",
       "code",
@@ -186,7 +183,6 @@
       "tpm": 1000
     },
     "suitable_for": [
-      "classify",
       "reasoning",
       "summarize",
       "code"
@@ -217,7 +213,6 @@
     "suitable_for": [
       "chat",
       "summarize",
-      "classify",
       "extract"
     ],
     "benchmarks": {
@@ -324,7 +319,6 @@
     },
     "suitable_for": [
       "summarize",
-      "classify",
       "chat"
     ],
     "license": "Llama-3.1-Community",
@@ -427,7 +421,6 @@
       "tpm": 50000
     },
     "suitable_for": [
-      "classify",
       "rag",
       "summarize",
       "chat",
@@ -453,7 +446,6 @@
     "tier": "free",
     "free_until": "ongoing",
     "suitable_for": [
-      "classify",
       "rag",
       "reasoning",
       "code",
@@ -486,7 +478,6 @@
       "tpd": 1500
     },
     "suitable_for": [
-      "classify",
       "reasoning",
       "vision",
       "audio",
@@ -521,7 +512,6 @@
     "tier": "free",
     "free_until": "ongoing",
     "suitable_for": [
-      "classify",
       "extract",
       "chat",
       "summarize"
@@ -531,10 +521,10 @@
     "last_verified": "2026-08-29",
     "public_mirror_safe": true
   },
-  "openrouter:meta-llama/llama-3.3-70b:free": {
+  "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free": {
     "provider": "openrouter",
     "country": "US",
-    "context_window": 131072,
+    "context_window": 1000000,
     "modalities": {
       "input": [
         "text"
@@ -548,18 +538,19 @@
     "suitable_for": [
       "classify",
       "reasoning",
+      "math",
       "code",
       "chat"
     ],
-    "license": "Llama-3.3-Community",
-    "added_on": "2024-12-10",
-    "last_verified": "2026-08-29",
+    "license": "NVIDIA-Open-Model",
+    "added_on": "2026-06-04",
+    "last_verified": "2026-09-21",
     "public_mirror_safe": true
   },
-  "openrouter:qwen/qwen-2.5-72b-instruct:free": {
+  "openrouter:qwen/qwen3.8-27b:free": {
     "provider": "openrouter",
     "country": "US",
-    "context_window": 131072,
+    "context_window": 262144,
     "modalities": {
       "input": [
         "text"
@@ -578,42 +569,14 @@
       "chat"
     ],
     "license": "Apache-2.0",
-    "added_on": "2024-12-01",
-    "last_verified": "2026-08-29",
+    "added_on": "2026-08-14",
+    "last_verified": "2026-09-21",
     "public_mirror_safe": true
   },
-  "openrouter:google/gemini-2.0-flash-exp:free": {
+  "openrouter:google/gemma-4-31b-it:free": {
     "provider": "openrouter",
     "country": "US",
-    "context_window": 1048576,
-    "modalities": {
-      "input": [
-        "text",
-        "image",
-        "audio",
-        "video"
-      ],
-      "output": [
-        "text"
-      ]
-    },
-    "tier": "free",
-    "free_until": "ongoing",
-    "suitable_for": [
-      "classify",
-      "reasoning",
-      "vision",
-      "long-context"
-    ],
-    "license": "Proprietary",
-    "added_on": "2024-12-11",
-    "last_verified": "2026-08-29",
-    "public_mirror_safe": true
-  },
-  "openrouter:deepseek/deepseek-chat-v3:free": {
-    "provider": "openrouter",
-    "country": "US",
-    "context_window": 65536,
+    "context_window": 262144,
     "modalities": {
       "input": [
         "text"
@@ -627,13 +590,11 @@
     "suitable_for": [
       "classify",
       "reasoning",
-      "code",
-      "math",
       "chat"
     ],
-    "license": "DeepSeek",
-    "added_on": "2024-12-25",
-    "last_verified": "2026-08-29",
+    "license": "Gemma-4",
+    "added_on": "2026-04-02",
+    "last_verified": "2026-09-21",
     "public_mirror_safe": true
   },
   "ollama:llama3.2:3b": {
@@ -651,7 +612,6 @@
     "tier": "unlimited",
     "suitable_for": [
       "chat",
-      "classify",
       "extract",
       "summarize"
     ],
@@ -728,8 +688,7 @@
     "tier": "unlimited",
     "suitable_for": [
       "chat",
-      "extract",
-      "classify"
+      "extract"
     ],
     "license": "MIT",
     "added_on": "2024-08-15",
@@ -756,7 +715,6 @@
     },
     "suitable_for": [
       "chat",
-      "classify",
       "extract"
     ],
     "license": "Llama-3.2-Community",
