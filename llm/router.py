@@ -150,6 +150,10 @@ class FreeModelsRouter:
         if tier == "free":
             flat = []
             for provider_id, prov in self.providers.items():
+                env_key = (prov or {}).get("env_key", "")
+                if env_key and not os.environ.get(env_key, ""):
+                    log.debug("Skipping %s: %s not configured", provider_id, env_key)
+                    continue
                 for model_id in prov.get("free_models", []):
                     key = f"{provider_id}:{model_id}"
                     if key in self.models:

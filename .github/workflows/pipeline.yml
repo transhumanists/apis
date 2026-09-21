@@ -92,7 +92,7 @@ jobs:
           huggingface-key: ${{ secrets.HUGGINGFACE_API_KEY }}
           nvidia-key: ${{ secrets.NVIDIA_API_KEY }}
           cohere-key: ${{ secrets.COHERE_API_KEY }}
-          data-dir: data
+          data-dir: ${{ runner.temp }}/llm-router-data
           python-version: '3.12'
           cache-pip: false
 
@@ -102,10 +102,10 @@ jobs:
         run: python -m pip install -r requirements.txt --quiet
 
       - name: Run scoring
-        env:
-          # github_models is the only free provider whose key the router can
-          # get from the runner itself; nothing else is reliably configured.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # The router here is repo-owned (llm/router.py + data/*.json); the
+        # llm-action above only bundles its own upstream data into runner.temp
+        # and exports the provider API keys. Router candidates are gated on
+        # which of those keys are actually present.
         run: python llm/score_milestone.py
 
       - name: Guard against publishing an empty dataset
