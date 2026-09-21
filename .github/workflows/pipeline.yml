@@ -47,7 +47,7 @@ jobs:
             data/articles.json
             data/feeds_health.json
             data/dead_feeds.json
-          if-no-files-found: warn
+          if-no-files-found: error
 
   score:
     name: LLM scoring
@@ -65,7 +65,7 @@ jobs:
       - name: Download scraped data
         uses: actions/download-artifact@v8
         with:
-          name: scored-data
+          name: scraped-data
           path: data
 
       - name: Save previous milestones for delta
@@ -102,6 +102,24 @@ jobs:
       - name: Run scoring
         run: python llm/score_milestone.py
 
+      - name: Guard against publishing an empty dataset
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path("data/milestones.json")
+          try:
+              data = json.loads(path.read_text(encoding="utf-8"))
+          except Exception as exc:  # noqa: BLE001
+              print(f"::error::Cannot read milestones.json after scoring: {exc}")
+              raise SystemExit(1)
+          count = sum(len(cat.get("milestones", [])) for cat in data.get("categories", {}).values())
+          if count < 1:
+              print(f"::error::Scoring produced 0 milestones ({count}). Refusing to publish an empty dataset - the milestone database would be wiped.")
+              raise SystemExit(1)
+          print(f"OK: publishing {count} milestones")
+          PY
+
       - uses: actions/upload-artifact@v7
         with:
           name: scored-data
@@ -109,6 +127,7 @@ jobs:
             data/milestones.json
             data/events.json
             Milestones.md
+          if-no-files-found: error
 
   post-facebook:
     name: Post to Facebook
