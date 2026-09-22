@@ -1,8 +1,29 @@
 {
   "_meta": {
-    "updated": "2026-08-29",
+    "updated": "2026-09-22",
     "source": "neohiro/LLM knowledge base",
     "schema": "1.0",
+    "public_mirror_safe": true
+  },
+  "openrouter": {
+    "name": "OpenRouter",
+    "base_url": "https://openrouter.ai/api/v1",
+    "auth": "bearer",
+    "env_key": "OPENROUTER_API_KEY",
+    "country": "US",
+    "region": "us-east-1",
+    "free_models": [
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "qwen/qwen3.8-27b:free",
+      "google/gemma-4-31b-it:free"
+    ],
+    "tier": "free_with_limits",
+    "rate_limit": {
+      "varies": "per model, check openrouter.ai/models"
+    },
+    "openai_compat": true,
+    "priority": 1,
+    "notes": "Aggregates many providers. :free tag gives credits. 50 req/day free tier. $10 unlocks 1000/day.",
     "public_mirror_safe": true
   },
   "groq": {
@@ -13,10 +34,8 @@
     "country": "US",
     "region": "us-east-1",
     "free_models": [
-      "llama-3.1-8b-instant",
-      "llama-3.3-70b-versatile",
-      "whisper-large-v3-turbo",
-      "distil-whisper-large-v3-en"
+      "llama-3.1-70b-versatile",
+      "llama-3.1-8b-instant"
     ],
     "tier": "free_with_limits",
     "rate_limit": {
@@ -27,7 +46,7 @@
     "openai_compat": true,
     "priority": 10,
     "user_agent": "Mozilla/5.0 (compatible; TranshumanistsPipeline/1.0; +https://github.com/transhumanists/apis)",
-    "notes": "Fastest inference. 14,400 requests/day free. Llama 3.3 70B is exceptional.",
+    "notes": "Fastest inference. 14,400 requests/day free. Model names updated 2026-09-22.",
     "public_mirror_safe": true
   },
   "cerebras": {
@@ -38,8 +57,8 @@
     "country": "US",
     "region": "us-west-2",
     "free_models": [
-      "llama-3.3-70b",
-      "qwen-2.5-72b-instruct"
+      "llama3.1-70b",
+      "qwen2.5-72b-instruct"
     ],
     "tier": "free_with_limits",
     "rate_limit": {
@@ -49,57 +68,7 @@
     "openai_compat": true,
     "priority": 20,
     "user_agent": "Mozilla/5.0 (compatible; TranshumanistsPipeline/1.0; +https://github.com/transhumanists/apis)",
-    "notes": "Cerebras Gaudi 3 chips. Fast inference on large models. qwen-2.5-72b is top-tier quality.",
-    "public_mirror_safe": true
-  },
-  "sambanova": {
-    "name": "SambaNova",
-    "base_url": "https://api.sambanext.ai/v1",
-    "auth": "bearer",
-    "env_key": "SAMBANOVA_API_KEY",
-    "country": "US",
-    "region": "us-west-1",
-    "free_models": [
-      "Meta-Llama-3.1-70B-Instruct",
-      "Meta-Llama-3.1-8B-Instruct",
-      "Qwen2.5-72B-Instruct",
-      "Mistral-Nemo-12B-Instruct"
-    ],
-    "tier": "free_with_limits",
-    "rate_limit": {
-      "rpm": 5,
-      "tpm": 1000
-    },
-    "openai_compat": true,
-    "priority": 30,
-    "notes": "200 tokens/day free on Quick Start tier. Good quality on Llama 3.1 70B.",
-    "public_mirror_safe": true
-  },
-  "cloudflare": {
-    "name": "Cloudflare Workers AI",
-    "base_url": "https://gateway.ai.cloudflare.com/v1/account/{account_id}/workers-ai/",
-    "auth": "bearer",
-    "env_key": "CLOUDFLARE_API_TOKEN",
-    "country": "US",
-    "region": "us-east-1",
-    "free_models": [
-      "@cf/meta/llama-3.1-8b-instruct",
-      "@cf/meta/llama-3.1-70b-instruct",
-      "@cf/thebloke/mistral-7b-instruct-awq",
-      "@cf/deepseek-ai/deepseek-coder-33b-instruct-awq",
-      "@cf/qwen/qwen2.5-7b-instruct-awq",
-      "@cf/openchat/openchat-7b-v3.1-8k",
-      "@hf/mistralai/mistral-7b-instruct-v0.2"
-    ],
-    "tier": "free_with_limits",
-    "rate_limit": {
-      "rpm": 1000,
-      "rpd": 10000
-    },
-    "openai_compat": false,
-    "priority": 40,
-    "user_agent": "Mozilla/5.0 (compatible; TranshumanistsPipeline/1.0; +https://github.com/transhumanists/apis)",
-    "notes": "Runs on Cloudflare's global edge. 10K req/day free. Low latency from CF edge nodes.",
+    "notes": "Cerebras inference. Model names updated 2026-09-22.",
     "public_mirror_safe": true
   },
   "nvidia": {
@@ -121,31 +90,8 @@
       "tpm": 5000
     },
     "openai_compat": true,
-    "priority": 50,
-    "notes": "Free tier: 5M tokens/month. NIM bundles are optimized for NVIDIA hardware.",
-    "public_mirror_safe": true
-  },
-  "cohere": {
-    "name": "Cohere",
-    "base_url": "https://api.cohere.ai/v2",
-    "auth": "bearer",
-    "env_key": "COHERE_API_KEY",
-    "country": "US",
-    "region": "us-east-1",
-    "free_models": [
-      "command-r",
-      "command-r-plus",
-      "command-r7b-12-2024",
-      "c4ai-aya-expanse-8b"
-    ],
-    "tier": "free_with_limits",
-    "rate_limit": {
-      "rpm": 5,
-      "tpm": 50000
-    },
-    "openai_compat": true,
-    "priority": 60,
-    "notes": "Command-R is excellent for RAG and multi-step reasoning. 50K tokens/month free.",
+    "priority": 30,
+    "notes": "Free tier: 5M tokens/month. NIM bundles optimized for NVIDIA hardware.",
     "public_mirror_safe": true
   },
   "together": {
@@ -156,11 +102,9 @@
     "country": "US",
     "region": "us-east-1",
     "free_models": [
-      "meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo",
       "meta-llama/Llama-3.2-3B-Instruct",
       "Qwen/Qwen2.5-7B-Instruct-Turbo",
-      "mistralai/Mistral-7B-Instruct-v0.3",
-      "deepseek-ai/DeepSeek-V3"
+      "mistralai/Mistral-7B-Instruct-v0.3"
     ],
     "tier": "free_with_limits",
     "rate_limit": {
@@ -168,32 +112,8 @@
       "tpm": 500000
     },
     "openai_compat": true,
-    "priority": 70,
-    "notes": "$5 free credit. 500K tokens/month free on some models. Good vision support.",
-    "public_mirror_safe": true
-  },
-  "google_ai": {
-    "name": "Google AI Studio",
-    "base_url": "https://generativelanguage.googleapis.com/v1beta",
-    "auth": "api_key",
-    "env_key": "GOOGLE_AI_API_KEY",
-    "country": "US",
-    "region": "us-central1",
-    "free_models": [
-      "gemini-2.0-flash-exp",
-      "gemini-1.5-flash-8b",
-      "gemini-1.5-flash",
-      "gemini-1.5-pro",
-      "gemma-3-4b-it"
-    ],
-    "tier": "free_with_limits",
-    "rate_limit": {
-      "rpm": 15,
-      "tpd": 1500
-    },
-    "openai_compat": false,
-    "priority": 80,
-    "notes": "Gemini 2.0 Flash is cutting-edge fast. 1.5M tokens/month free.",
+    "priority": 40,
+    "notes": "$5 free credit. 500K tokens/month free on some models.",
     "public_mirror_safe": true
   },
   "ollama": {
@@ -226,27 +146,6 @@
     "notes": "Runs locally. Zero cost, zero rate limits. Pull with: ollama pull <model>",
     "public_mirror_safe": true
   },
-  "openrouter": {
-    "name": "OpenRouter",
-    "base_url": "https://openrouter.ai/api/v1",
-    "auth": "bearer",
-    "env_key": "OPENROUTER_API_KEY",
-    "country": "US",
-    "region": "us-east-1",
-    "free_models": [
-      "nvidia/nemotron-3-ultra-550b-a55b:free",
-      "qwen/qwen3.8-27b:free",
-      "google/gemma-4-31b-it:free"
-    ],
-    "tier": "free_with_limits",
-    "rate_limit": {
-      "varies": "per model, check openrouter.ai/models"
-    },
-    "openai_compat": true,
-    "priority": 1,
-    "notes": "Aggregates many providers. :free tag gives credits. $5 free on signup.",
-    "public_mirror_safe": true
-  },
   "huggingface": {
     "name": "HuggingFace Inference",
     "base_url": "https://router.huggingface.co/tgi/v1",
@@ -256,12 +155,8 @@
     "region": "us-east-1",
     "free_models": [
       "meta-llama/Llama-3.2-3B-Instruct",
-      "meta-llama/Llama-3.2-1B-Instruct",
       "Qwen/Qwen2.5-7B-Instruct",
-      "mistralai/Mistral-7B-Instruct-v0.3",
-      "openchat/openchat-7b-v3.1-8k",
-      "mistralai/Mixtral-8x7B-Instruct-v0.1",
-      "bigcode/starcoder2-15b"
+      "mistralai/Mistral-7B-Instruct-v0.3"
     ],
     "tier": "free_with_limits",
     "rate_limit": {
@@ -269,8 +164,8 @@
       "tpm": 10000
     },
     "openai_compat": true,
-    "priority": 90,
-    "notes": "Serverless inference endpoints. 10K tokens/month free. Free tier saturates quickly.",
+    "priority": 50,
+    "notes": "Serverless inference endpoints. 10K tokens/month free.",
     "public_mirror_safe": true
   }
 }
