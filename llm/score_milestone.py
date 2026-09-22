@@ -13,7 +13,6 @@ import pathlib
 import re
 import sys
 import threading
-import time
 from datetime import datetime, timezone
 from hashlib import sha1
 from typing import Any
@@ -45,7 +44,6 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 LLM_ROUTER_ENABLED = os.environ.get("LLM_ROUTER_ENABLED", "true").lower() in ("1", "true", "yes")
 MAX_TOKENS = 1024
 MAX_ARTICLES_TO_SCORE = 45
-RATE_LIMIT_DELAY_ARTICLES = 50
 
 # Router data files (vendored from neohiro/LLM). When LLM_ROUTER_ENABLED=true,
 # the FreeModelsRouter picks the best available free model across all configured
@@ -171,6 +169,9 @@ def build_existing_by_subcat(raw_existing: dict[str, Any]) -> dict[str, list[dic
     such as "Renewable Energy") back to the LLM-side key so the keys line up
     with freshly scored records and the append-only merge retains everything.
     """
+    if not isinstance(raw_existing, dict):
+        log.warning("Existing milestones is not a JSON object — ignoring (keys: %s)", type(raw_existing).__name__)
+        return {}
     out: dict[str, list[dict[str, Any]]] = {}
     for _cat_name, cat_data in (raw_existing.get("categories") or {}).items():
         if not isinstance(cat_data, dict):
@@ -620,7 +621,7 @@ def score_article(article: dict[str, Any]) -> dict[str, Any] | None:
 def build_categories_output() -> dict[str, Any]:
     output_categories: dict[str, Any] = {}
     for cat_name, cat_data in CATEGORIES.items():
-        subcats = DYNAMIC_SUBCATEGORIES.get(cat_name, cat_data.get("subcategories", []))
+        subcats = list(DYNAMIC_SUBCATEGORIES.get(cat_name, cat_data.get("subcategories", [])))
         output_categories[cat_name] = {
             "name": display_category(cat_name),
             "icon": cat_data.get("icon", "📌"),
@@ -631,7 +632,7 @@ def build_categories_output() -> dict[str, Any]:
     return output_categories
 
 
-def generate_milestones_md(categories: dict[str, Any], existing_by_subcat: dict[str, Any]) -> str:  # noqa: ARG001
+def generate_milestones_md(categories: dict[str, Any]) -> str:
     now = _utc_now()
     lines = [
         "# Human Progress Milestones",
@@ -767,8 +768,6 @@ def main() -> None:
         m = score_article(article)
         if m:
             all_milestones.append(m)
-        if i > 0 and i % RATE_LIMIT_DELAY_ARTICLES == 0:
-            time.sleep(1)
 
     log.info("Found %d candidate milestones across %d categories", len(all_milestones), len(CATEGORIES))
 
@@ -838,7 +837,7 @@ def main() -> None:
     OUT_MILESTONES.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
     OUT_EVENTS.write_text(json.dumps(events_out, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    md_content = generate_milestones_md(output_categories, existing_by_subcat)
+    md_content = generate_milestones_md(output_categories)
     OUT_MD.write_text(md_content, encoding="utf-8")
 
     # Persist the merged dataset so a later local/dry run retains it even if

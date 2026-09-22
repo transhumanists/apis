@@ -325,7 +325,7 @@ class TestLlmScorer(unittest.TestCase):
                                          "source": "MIT", "date": "2026-01-02",
                                          "subcategory": "remote_surgery", "is_new": False}]},
         }
-        md = llm_scorer.generate_milestones_md(cats, {})
+        md = llm_scorer.generate_milestones_md(cats)
         self.assertIn("1. Biotechnology", md)
         self.assertIn("2. Robotics", md)
         self.assertIn("remote_surgery", md)
@@ -448,6 +448,38 @@ class TestLlmScorer(unittest.TestCase):
         self.assertIn("Spaceflight/launch", merged)
         self.assertIn("Defense/air_defense", merged)
         self.assertIn("Quantum Physics/qubit_count", merged)
+
+    def test_merge_is_new_compared_against_display_named_existing(self):
+        """is_new must be judged against existing records even when the
+        existing bucket is keyed under a long canonical display name.
+
+        Regression: before normalisation the preview lookup missed display-name
+        buckets, so every freshly scored record was flagged is_new=True and
+        superseded unconditionally — collapsing stronger stored records.
+        """
+        raw = {
+            "categories": {
+                "Energy": {
+                    "name": "Renewable Energy",
+                    "milestones": [
+                        {"id": "ms-ref", "category": "Renewable Energy",
+                         "subcategory": "fusion", "title": "NIF record",
+                         "value": 1.5, "date": "2026-09-22"},
+                    ],
+                }
+            }
+        }
+        existing = llm_scorer.build_existing_by_subcat(raw)
+        weak = {
+            "Energy/fusion": {
+                "id": "ms-weak", "category": "Energy", "subcategory": "fusion",
+                "title": "Smaller result", "value": 0.5, "date": "2026-09-22",
+            }
+        }
+        merged = llm_scorer.merge_with_existing(existing, weak)
+        recs = merged["Energy/fusion"]
+        self.assertEqual(len(recs), 2)
+        self.assertFalse(next(r for r in recs if r["id"] == "ms-weak")["is_new"])
 
     def test_build_categories_output_uses_display_names(self):
         """Category containers publish the canonical long display names."""
