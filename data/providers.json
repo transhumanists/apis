@@ -25,6 +25,7 @@
       "rpd": 14400
     },
     "openai_compat": true,
+    "user_agent": "Mozilla/5.0 (compatible; TranshumanistsPipeline/1.0; +https://github.com/transhumanists/apis)",
     "notes": "Fastest inference. 14,400 requests/day free. Llama 3.3 70B is exceptional.",
     "public_mirror_safe": true
   },
@@ -45,6 +46,7 @@
       "tpm": 2000
     },
     "openai_compat": true,
+    "user_agent": "Mozilla/5.0 (compatible; TranshumanistsPipeline/1.0; +https://github.com/transhumanists/apis)",
     "notes": "Cerebras Gaudi 3 chips. Fast inference on large models. qwen-2.5-72b is top-tier quality.",
     "public_mirror_safe": true
   },
@@ -92,6 +94,7 @@
       "rpd": 10000
     },
     "openai_compat": false,
+    "user_agent": "Mozilla/5.0 (compatible; TranshumanistsPipeline/1.0; +https://github.com/transhumanists/apis)",
     "notes": "Runs on Cloudflare's global edge. 10K req/day free. Low latency from CF edge nodes.",
     "public_mirror_safe": true
   },

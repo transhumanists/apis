@@ -58,6 +58,8 @@ class RouterState:
     total_requests: int = 0
     free_requests_used: int = 0
     paid_requests_used: int = 0
+    # Batch state saves to reduce I/O contention
+    _pending_save: bool = field(default=False, init=False, repr=False)
 
 
 # ─── Tier order ────────────────────────────────────────────────────────────────
@@ -110,10 +112,26 @@ class FreeModelsRouter:
             log.warning("Could not load state: %s — resetting", e)
             return RouterState(last_healthcheck="never")
 
+    # Batch state saves to reduce I/O contention
+    # Only save on error and every N requests
     def _save_state(self) -> None:
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
+        # Filter out internal fields
+        state_dict = {k: v for k, v in asdict(self.state).items() if not k.startswith("_")}
         with open(self._state_path, "w", encoding="utf-8") as f:
-            json.dump(asdict(self.state), f, indent=2)
+            json.dump(state_dict, f, indent=2)
+        self.state._pending_save = False
+
+    def _mark_state_dirty(self) -> None:
+        self.state._pending_save = True
+        # Flush every 10 requests to reduce I/O contention
+        if self.state.total_requests % 10 == 0:
+            self._save_state()
+
+    def _flush_state(self) -> None:
+        """Flush any pending state changes."""
+        if self.state._pending_save:
+            self._save_state()
 
     # ── Candidate generation ─────────────────────────────────────────────────
 
@@ -156,12 +174,13 @@ class FreeModelsRouter:
                     continue
                 for model_id in prov.get("free_models", []):
                     key = f"{provider_id}:{model_id}"
+                    # Only include models that actually exist in models.json
                     if key in self.models:
                         flat.append(key)
                     elif model_id in self.models:
                         flat.append(model_id)
                     else:
-                        flat.append(key)
+                        log.debug("Skipping unknown model %s:%s", provider_id, model_id)
             return flat
         return []
 
@@ -292,7 +311,7 @@ class FreeModelsRouter:
                     self.state.free_requests_used += 1
                 else:
                     self.state.paid_requests_used += 1
-                self._save_state()
+                self._mark_state_dirty()
                 return ChatResult(
                     content=content,
                     model=choice.model,
@@ -311,7 +330,8 @@ class FreeModelsRouter:
 
         self.state.total_requests += 1
         self.state.paid_requests_used += 1
-        self._save_state()
+        self._mark_state_dirty()
+        self._flush_state()
         return ChatResult(
             content="",
             model="",
@@ -321,6 +341,9 @@ class FreeModelsRouter:
             latency_ms=(time.monotonic() - start) * 1000,
             error=last_error or "All providers exhausted",
         )
+
+    # Default User-Agent to avoid Cloudflare 1010 blocks on providers behind Cloudflare
+    DEFAULT_USER_AGENT = "Mozilla/5.0 (compatible; TranshumanistsPipeline/1.0; +https://github.com/transhumanists/apis)"
 
     def _call_api(
         self,
@@ -354,19 +377,38 @@ class FreeModelsRouter:
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
+                "User-Agent": provider.get("user_agent", self.DEFAULT_USER_AGENT),
             },
             method="POST",
         )
 
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                result = json.loads(resp.read())
-                return result["choices"][0]["message"]["content"]
-        except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"HTTP {e.code}: {body[:200]}") from e
-        except urllib.error.URLError as e:
-            raise RuntimeError(f"Network error: {e.reason}") from e
+        # Exponential backoff for rate limits and server errors
+        max_retries = 3
+        base_delay = 1.0
+        for attempt in range(max_retries):
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    result = json.loads(resp.read())
+                    return result["choices"][0]["message"]["content"]
+            except urllib.error.HTTPError as e:
+                body = e.read().decode("utf-8", errors="replace")
+                if e.code in (429, 500, 502, 503, 504) and attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    log.warning("HTTP %d from %s, retrying in %.1fs: %s", e.code, choice.provider, delay, body[:200])
+                    time.sleep(delay)
+                    continue
+                body = e.read().decode("utf-8", errors="replace")
+                raise RuntimeError(f"HTTP {e.code}: {body[:200]}") from e
+            except urllib.error.URLError as e:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    log.warning("Network error from %s, retrying in %.1fs: %s", choice.provider, delay, e.reason)
+                    time.sleep(delay)
+                    continue
+                raise RuntimeError(f"Network error: {e.reason}") from e
+        
+        # Should not reach here due to returns/raises above
+        raise RuntimeError(f"All retries exhausted for {choice.provider}")
 
     def _call_ollama(
         self,

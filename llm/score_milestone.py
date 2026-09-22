@@ -44,7 +44,8 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 LLM_ROUTER_ENABLED = os.environ.get("LLM_ROUTER_ENABLED", "true").lower() in ("1", "true", "yes")
 MAX_TOKENS = 1024
-MAX_ARTICLES_TO_SCORE = 45
+# Max articles to score per run; configurable via env var (default 45 for OpenRouter free tier)
+MAX_ARTICLES_TO_SCORE = int(os.environ.get("MAX_ARTICLES_TO_SCORE", "45"))
 RATE_LIMIT_DELAY_ARTICLES = 50
 
 # Router data files (vendored from neohiro/LLM). When LLM_ROUTER_ENABLED=true,
@@ -410,6 +411,10 @@ def call_llm(title: str, summary: str) -> Any | None:
 
 
 def normalize_value(value: Any, unit: str | None) -> float:
+    """Normalize milestone values to a comparable scale.
+
+    Heuristic conversions for common units. Returns raw value for unknown units.
+    """
     if value is None:
         return 0.0
     try:
@@ -418,25 +423,50 @@ def normalize_value(value: Any, unit: str | None) -> float:
         return 0.0
     if not unit:
         return v
-    u = unit.lower()
+    u = unit.lower().strip()
+    # Percentages are already 0-100 scale
     if "%" in u:
         return v
+    # Quantum volume "Q" or "q"
     if "q" in u and "=" not in u and len(u) <= 2:
         return v
+    # Mach number
     if "mach" in u or "speed" in u:
         return v * 5
+    # Distance in km
     if "km" in u:
         return min(v, 20000) / 200
+    # Mass in tons
     if "ton" in u:
         return v * 0.5
+    # Qubits
     if "qubit" in u:
         return v / 50
+    # Energy density Wh/kg or Wh/L
     if "wh/kg" in u or "wh/l" in u:
         return v / 6
+    # Power in watts or kW
+    if u.endswith("w") or u.endswith("kw"):
+        return v / 10
+    # Frequency in Hz/GHz
+    if "hz" in u:
+        return v / 1e9
+    # Time in seconds/ms
+    if "s" == u or "ms" in u:
+        return v / 1000
+    # Unknown unit: return raw value
     return v
 
 
-def rank_milestone(milestone: dict[str, Any]) -> float:
+def rank_milestone(milestone: dict[str, Any], now: datetime | None = None) -> float:
+    """Rank a milestone by importance.
+
+    Args:
+        milestone: The milestone dict.
+        now: Optional cached datetime for testing/determinism.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
     score = 0.0
     if milestone.get("is_record"):
         score += 100
@@ -448,7 +478,7 @@ def rank_milestone(milestone: dict[str, Any]) -> float:
     if date_str:
         try:
             d = datetime.strptime(date_str, "%Y-%m-%d")
-            days_old = (datetime.now(timezone.utc) - d.replace(tzinfo=timezone.utc)).days
+            days_old = (now - d.replace(tzinfo=timezone.utc)).days
             score += max(0, 30 - days_old) * 0.5
         except ValueError:
             pass
@@ -480,8 +510,10 @@ def ensure_subcategory(category: str, subcategory: str) -> None:
 
 def score_article(article: dict[str, Any]) -> dict[str, Any] | None:
     if not LLM_ROUTER_ENABLED and not (OPENAI_API_KEY or ANTHROPIC_API_KEY):
-        log.error("No LLM API key set — set OPENAI_API_KEY or ANTHROPIC_API_KEY (or enable LLM_ROUTER_ENABLED=true with at least one free provider key)")
-        sys.exit(1)
+        raise RuntimeError(
+            "No LLM API key set — set OPENAI_API_KEY or ANTHROPIC_API_KEY "
+            "(or enable LLM_ROUTER_ENABLED=true with at least one free provider key)"
+        )
 
     title = article.get("title", "")
     summary = article.get("summary", "")
@@ -545,7 +577,7 @@ def build_categories_output() -> dict[str, Any]:
     return output_categories
 
 
-def generate_milestones_md(categories: dict[str, Any], existing_by_subcat: dict[str, Any]) -> str:  # noqa: ARG001
+def generate_milestones_md(categories: dict[str, Any]) -> str:
     now = _utc_now()
     lines = [
         "# Human Progress Milestones",
@@ -631,10 +663,12 @@ def main() -> None:
 
     log.info("Found %d candidate milestones across %d categories", len(all_milestones), len(CATEGORIES))
 
+    now = datetime.now(timezone.utc)
+
     by_subcat: dict[str, Any] = {}
     for m in all_milestones:
         key = f"{m['category']}/{m['subcategory']}"
-        if key not in by_subcat or rank_milestone(m) > rank_milestone(by_subcat[key]):
+        if key not in by_subcat or rank_milestone(m, now) > rank_milestone(by_subcat[key], now):
             by_subcat[key] = m
 
     output_categories = build_categories_output()
@@ -647,8 +681,8 @@ def main() -> None:
                 m = by_subcat[key]
                 prev = existing_by_subcat.get(key, [])
                 if prev:
-                    best_prev = max((rank_milestone(p) for p in prev), default=0)
-                    m["is_new"] = rank_milestone(m) >= best_prev
+                    best_prev = max((rank_milestone(p, now) for p in prev), default=0)
+                    m["is_new"] = rank_milestone(m, now) >= best_prev
                 else:
                     m["is_new"] = True
                 output_categories[cat_name]["milestones"].append(m)
@@ -665,7 +699,7 @@ def main() -> None:
                     })
 
     for cat_name in output_categories:
-        output_categories[cat_name]["milestones"].sort(key=lambda m: -rank_milestone(m))
+        output_categories[cat_name]["milestones"].sort(key=lambda m: -rank_milestone(m, now))
 
     now = _utc_now()
     output = {
@@ -683,7 +717,7 @@ def main() -> None:
     OUT_MILESTONES.write_text(json.dumps(output, indent=2, ensure_ascii=False))
     OUT_EVENTS.write_text(json.dumps(events_out, indent=2, ensure_ascii=False))
 
-    md_content = generate_milestones_md(output_categories, existing_by_subcat)
+    md_content = generate_milestones_md(output_categories)
     OUT_MD.write_text(md_content)
 
     log.info(

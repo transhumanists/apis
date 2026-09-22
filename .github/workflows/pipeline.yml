@@ -11,7 +11,7 @@ on:
 
 concurrency:
   group: pipeline-${{ github.workflow }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -71,7 +71,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.MILESTONES_DISPATCH_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
-          curl -sSL -H "Authorization: token $GH_TOKEN" \
+          curl -sSL --max-time 30 -H "Authorization: token $GH_TOKEN" \
             "https://raw.githubusercontent.com/transhumanists/milestones/main/data/milestones.json" \
             -o data/milestones_existing.json || echo '{"categories":{}}' > data/milestones_existing.json
 
@@ -218,7 +218,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.MILESTONES_DISPATCH_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
-          python github/dashboard_updater.py || true
+          python github/dashboard_updater.py
 
       - name: Commit
         env:
