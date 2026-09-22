@@ -82,10 +82,10 @@
     "last_verified": "2026-09-22",
     "public_mirror_safe": true
   },
-  "google_ai:gemini-1.5-flash": {
-    "provider": "google_ai",
+  "sambanova:Meta-Llama-3.1-8B-Instruct": {
+    "provider": "sambanova",
     "country": "US",
-    "context_window": 1048576,
+    "context_window": 131072,
     "modalities": {
       "input": [
         "text"
@@ -102,15 +102,15 @@
       "code",
       "chat"
     ],
-    "license": "Google-Gemini",
-    "added_on": "2024-05-14",
+    "license": "Llama-3.1-Community",
+    "added_on": "2024-07-23",
     "last_verified": "2026-09-22",
     "public_mirror_safe": true
   },
-  "google_ai:gemini-1.5-pro": {
-    "provider": "google_ai",
+  "sambanova:Meta-Llama-3.1-70B-Instruct": {
+    "provider": "sambanova",
     "country": "US",
-    "context_window": 2097152,
+    "context_window": 131072,
     "modalities": {
       "input": [
         "text"
@@ -127,8 +127,8 @@
       "code",
       "chat"
     ],
-    "license": "Google-Gemini",
-    "added_on": "2024-02-15",
+    "license": "Llama-3.1-Community",
+    "added_on": "2024-07-23",
     "last_verified": "2026-09-22",
     "public_mirror_safe": true
   }

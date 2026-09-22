@@ -26,25 +26,25 @@
     "notes": "Primary provider. 50 req/day free tier. $10 unlocks 1000/day.",
     "public_mirror_safe": true
   },
-  "google_ai": {
-    "name": "Google AI (Gemini)",
-    "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+  "sambanova": {
+    "name": "SambaNova",
+    "base_url": "https://api.sambanova.ai/v1",
     "auth": "bearer",
-    "env_key": "GOOGLE_AI_API_KEY",
+    "env_key": "SAMBANOVA_API_KEY",
     "country": "US",
     "region": "us-east-1",
     "free_models": [
-      "gemini-1.5-flash",
-      "gemini-1.5-pro"
+      "Meta-Llama-3.1-8B-Instruct",
+      "Meta-Llama-3.1-70B-Instruct"
     ],
     "tier": "free_with_limits",
     "rate_limit": {
-      "rpm": 15,
-      "tpm": 1000000
+      "rpm": 20,
+      "tpm": 100000
     },
     "openai_compat": true,
     "priority": 2,
-    "notes": "Fallback provider. Free tier: 1500 req/day for flash, 50 req/day for pro. Generous limits.",
+    "notes": "Fallback provider. Free tier with generous limits. OpenAI-compatible API.",
     "public_mirror_safe": true
   }
 }

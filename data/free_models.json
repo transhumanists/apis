@@ -9,14 +9,14 @@
       "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
       "openrouter:qwen/qwen3.8-27b:free",
       "openrouter:google/gemma-4-31b-it:free",
-      "google_ai:gemini-1.5-flash",
-      "google_ai:gemini-1.5-pro"
+      "sambanova:Meta-Llama-3.1-8B-Instruct",
+      "sambanova:Meta-Llama-3.1-70B-Instruct"
     ],
     "LOCAL": []
   },
   "by_provider_count": {
     "openrouter": 3,
-    "google_ai": 2
+    "sambanova": 2
   },
   "total_models": 6,
   "total_countries": 1,
