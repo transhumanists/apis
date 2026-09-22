@@ -45,7 +45,15 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 LLM_ROUTER_ENABLED = os.environ.get("LLM_ROUTER_ENABLED", "true").lower() in ("1", "true", "yes")
 MAX_TOKENS = 1024
 # Max articles to score per run; configurable via env var (default 45 for OpenRouter free tier)
-MAX_ARTICLES_TO_SCORE = int(os.environ.get("MAX_ARTICLES_TO_SCORE", "45"))
+_MAX_ARTICLES_RAW = os.environ.get("MAX_ARTICLES_TO_SCORE", "45")
+try:
+    _MAX_ARTICLES_VAL = int(_MAX_ARTICLES_RAW)
+    if _MAX_ARTICLES_VAL <= 0:
+        raise ValueError
+    MAX_ARTICLES_TO_SCORE = _MAX_ARTICLES_VAL
+except ValueError:
+    log.warning("Invalid MAX_ARTICLES_TO_SCORE=%r, defaulting to 45", _MAX_ARTICLES_RAW)
+    MAX_ARTICLES_TO_SCORE = 45
 RATE_LIMIT_DELAY_ARTICLES = 50
 
 # Router data files (vendored from neohiro/LLM). When LLM_ROUTER_ENABLED=true,
@@ -123,6 +131,9 @@ KNOWN_GEOCODES: dict[str, dict[str, object]] = {
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("score_milestone")
+
+# Lock for thread-safe access to mutable global category state
+_CATEGORY_LOCK = threading.Lock()
 
 CATEGORIES: dict[str, dict[str, Any]] = {
     name: {
@@ -427,8 +438,8 @@ def normalize_value(value: Any, unit: str | None) -> float:
     # Percentages are already 0-100 scale
     if "%" in u:
         return v
-    # Quantum volume "Q" or "q"
-    if "q" in u and "=" not in u and len(u) <= 2:
+    # Quantum volume "Q" or "q" (standalone)
+    if u in ("q", "Q"):
         return v
     # Mach number
     if "mach" in u or "speed" in u:
@@ -486,26 +497,28 @@ def rank_milestone(milestone: dict[str, Any], now: datetime | None = None) -> fl
 
 
 def ensure_category(category: str, color: str) -> None:
-    if category not in CATEGORIES:
-        log.info("Auto-discovered new category: %s — adding to tracker", category)
-        CATEGORIES[category] = {
-            "icon": "📌",
-            "color": color,
-            "subcategories": [],
-        }
-        DYNAMIC_SUBCATEGORIES[category] = []
+    with _CATEGORY_LOCK:
+        if category not in CATEGORIES:
+            log.info("Auto-discovered new category: %s — adding to tracker", category)
+            CATEGORIES[category] = {
+                "icon": "📌",
+                "color": color,
+                "subcategories": [],
+            }
+            DYNAMIC_SUBCATEGORIES[category] = []
 
 
 def ensure_subcategory(category: str, subcategory: str) -> None:
-    if category not in DYNAMIC_SUBCATEGORIES:
-        DYNAMIC_SUBCATEGORIES[category] = []
-    if subcategory not in DYNAMIC_SUBCATEGORIES[category]:
-        log.info("Auto-discovered new subcategory: %s/%s — adding", category, subcategory)
-        DYNAMIC_SUBCATEGORIES[category].append(subcategory)
-    cat_entry: dict[str, Any] | None = CATEGORIES.get(category)
-    if cat_entry is not None and subcategory not in cat_entry.get("subcategories", []):
-        subs: list[str] = cat_entry["subcategories"]
-        subs.append(subcategory)
+    with _CATEGORY_LOCK:
+        if category not in DYNAMIC_SUBCATEGORIES:
+            DYNAMIC_SUBCATEGORIES[category] = []
+        if subcategory not in DYNAMIC_SUBCATEGORIES[category]:
+            log.info("Auto-discovered new subcategory: %s/%s — adding", category, subcategory)
+            DYNAMIC_SUBCATEGORIES[category].append(subcategory)
+        cat_entry: dict[str, Any] | None = CATEGORIES.get(category)
+        if cat_entry is not None and subcategory not in cat_entry.get("subcategories", []):
+            subs: list[str] = cat_entry["subcategories"]
+            subs.append(subcategory)
 
 
 def score_article(article: dict[str, Any]) -> dict[str, Any] | None:
@@ -518,10 +531,15 @@ def score_article(article: dict[str, Any]) -> dict[str, Any] | None:
     title = article.get("title", "")
     summary = article.get("summary", "")
     if not title:
+        log.debug("Skipping article with no title: %s", article.get("url", "unknown"))
         return None
 
     result = call_llm(title, summary)
-    if not result or not result.get("is_milestone"):
+    if not result:
+        log.debug("LLM returned no result for article: %s", title[:80])
+        return None
+    if not result.get("is_milestone"):
+        log.debug("LLM determined not a milestone: %s", title[:80])
         return None
 
     category = result.get("category", "")
@@ -663,7 +681,7 @@ def main() -> None:
 
     log.info("Found %d candidate milestones across %d categories", len(all_milestones), len(CATEGORIES))
 
-    now = datetime.now(timezone.utc)
+    now = _utc_now()
 
     by_subcat: dict[str, Any] = {}
     for m in all_milestones:
@@ -701,7 +719,6 @@ def main() -> None:
     for cat_name in output_categories:
         output_categories[cat_name]["milestones"].sort(key=lambda m: -rank_milestone(m, now))
 
-    now = _utc_now()
     output = {
         "last_update": now,
         "version": "2.0.0",

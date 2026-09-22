@@ -21,6 +21,9 @@ from pathlib import Path
 log = logging.getLogger("router")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
+# Default User-Agent to avoid Cloudflare 1010 blocks on providers behind Cloudflare
+DEFAULT_USER_AGENT = "Mozilla/5.0 (compatible; TranshumanistsPipeline/1.0; +https://github.com/transhumanists/apis)"
+
 
 # ─── Data models ────────────────────────────────────────────────────────────────
 
@@ -274,6 +277,8 @@ class FreeModelsRouter:
         max_tokens: int | None = None,
     ) -> ModelChoice:
         """Return the best model for the given constraints."""
+        if max_tokens is not None and max_tokens <= 0:
+            raise ValueError("max_tokens must be positive")
         candidates = self._candidates(task, preferred_tier, country, modality, max_tokens)
         if not candidates:
             log.error("No models available for task=%s tier=%s country=%s", task, preferred_tier, country)
@@ -294,6 +299,10 @@ class FreeModelsRouter:
         max_tokens: int | None = None,
     ) -> ChatResult:
         """Run a chat completion with cascade fallback."""
+        if max_tokens is not None and max_tokens <= 0:
+            raise ValueError("max_tokens must be positive")
+        if not messages:
+            raise ValueError("messages must not be empty")
         start = time.monotonic()
         attempts = 0
         last_error = None
@@ -334,7 +343,8 @@ class FreeModelsRouter:
                     self.state.error_budget[choice.provider] = 1
 
         self.state.total_requests += 1
-        self.state.paid_requests_used += 1
+        # All attempts were on free tier (preferred_tier="free"), so count as free
+        self.state.free_requests_used += 1
         self._mark_state_dirty()
         self._flush_state()
         return ChatResult(
@@ -346,9 +356,6 @@ class FreeModelsRouter:
             latency_ms=(time.monotonic() - start) * 1000,
             error=last_error or "All providers exhausted",
         )
-
-    # Default User-Agent to avoid Cloudflare 1010 blocks on providers behind Cloudflare
-    DEFAULT_USER_AGENT = "Mozilla/5.0 (compatible; TranshumanistsPipeline/1.0; +https://github.com/transhumanists/apis)"
 
     def _call_api(
         self,
@@ -382,7 +389,7 @@ class FreeModelsRouter:
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
-                "User-Agent": provider.get("user_agent", self.DEFAULT_USER_AGENT),
+                "User-Agent": provider.get("user_agent", DEFAULT_USER_AGENT),
             },
             method="POST",
         )
@@ -402,7 +409,6 @@ class FreeModelsRouter:
                     log.warning("HTTP %d from %s, retrying in %.1fs: %s", e.code, choice.provider, delay, body[:200])
                     time.sleep(delay)
                     continue
-                body = e.read().decode("utf-8", errors="replace")
                 raise RuntimeError(f"HTTP {e.code}: {body[:200]}") from e
             except urllib.error.URLError as e:
                 if attempt < max_retries - 1:
