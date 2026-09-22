@@ -396,6 +396,66 @@ class TestLlmScorer(unittest.TestCase):
         self.assertEqual(records[0]["title"], "New title")
         self.assertTrue(records[0]["is_new"])
 
+    def test_build_existing_by_subcat_normalizes_display_names(self):
+        """Canonical display names map to LLM-side keys so nothing is dropped."""
+        raw = {
+            "categories": {
+                "renewable_energy": {
+                    "name": "Renewable Energy",
+                    "milestones": [
+                        {"id": "ms-aa", "category": "Renewable Energy",
+                         "subcategory": "fusion", "title": "NIF Q>1", "value": 1.5,
+                         "date": "2026-07-12"},
+                    ],
+                }
+            }
+        }
+        existing = llm_scorer.build_existing_by_subcat(raw)
+        self.assertEqual(list(existing), ["Energy/fusion"])
+        self.assertEqual(existing["Energy/fusion"][0]["category"], "Energy")
+
+    def test_merge_retains_display_named_canonical_categories(self):
+        """Real canonical data (long display names) must survive a dry run.
+
+        Regression: the restored 40-record DB keys 14 records under long
+        display names ("Renewable Energy", "Spaceflight & Aeronautics",
+        "Military & Defense") while the pipeline keys by short LLM names
+        ("Energy", "Spaceflight", "Defense"). Without normalisation the
+        distribution silently dropped those buckets on a zero-article run
+        (26 of 40 kept, observed 2026-09-22 during an audit).
+        """
+        raw = {
+            "categories": {
+                cat_key: {
+                    "name": display,
+                    "milestones": [
+                        {"id": f"ms-{i}", "category": display, "subcategory": sub,
+                         "title": f"{display} {sub}", "value": 100, "date": "2026-09-01"}
+                    ],
+                }
+                for i, (cat_key, display, sub) in enumerate([
+                    ("Energy", "Renewable Energy", "fusion"),
+                    ("Spaceflight", "Spaceflight & Aeronautics", "launch"),
+                    ("Defense", "Military & Defense", "air_defense"),
+                    ("Quantum Physics", "Quantum Physics", "qubit_count"),
+                ])
+            }
+        }
+        existing = llm_scorer.build_existing_by_subcat(raw)
+        merged = llm_scorer.merge_with_existing(existing, {})
+        self.assertEqual(len(merged), 4)
+        self.assertIn("Energy/fusion", merged)
+        self.assertIn("Spaceflight/launch", merged)
+        self.assertIn("Defense/air_defense", merged)
+        self.assertIn("Quantum Physics/qubit_count", merged)
+
+    def test_build_categories_output_uses_display_names(self):
+        """Category containers publish the canonical long display names."""
+        out = llm_scorer.build_categories_output()
+        self.assertEqual(out["Energy"]["name"], "Renewable Energy")
+        self.assertEqual(out["Spaceflight"]["name"], "Spaceflight & Aeronautics")
+        self.assertEqual(out["Defense"]["name"], "Military & Defense")
+
 
 class TestSourceChecker(unittest.TestCase):
     def test_replacements_defined_for_all_categories(self):

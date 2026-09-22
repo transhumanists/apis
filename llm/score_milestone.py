@@ -140,6 +140,50 @@ DYNAMIC_SUBCATEGORIES: dict[str, list[str]] = {
     name: list(v) for name, v in DEFAULT_SUBCATEGORIES.items()
 }
 
+# The canonical mirror and the site spell three categories long ("Renewable
+# Energy", "Spaceflight & Aeronautics", "Military & Defense"); freshly scored
+# records carry the short LLM keys ("Energy", "Spaceflight", "Defense").
+# Normalising between the two keeps the append-only merge keyed consistently -
+# a mismatch here silently drops every record of those categories on the next
+# pipeline run (observed 2026-09-22 while auditing the restored 40-record DB).
+CATEGORY_KEY_TO_DISPLAY = {
+    "Energy": "Renewable Energy",
+    "Spaceflight": "Spaceflight & Aeronautics",
+    "Defense": "Military & Defense",
+}
+CATEGORY_DISPLAY_TO_KEY = {v: k for k, v in CATEGORY_KEY_TO_DISPLAY.items()}
+
+
+def normalize_category(cat: str) -> str:
+    """Map a stored category to the LLM-side key it belongs under."""
+    return CATEGORY_DISPLAY_TO_KEY.get(cat, cat)
+
+
+def display_category(cat: str) -> str:
+    """Long display name a category key publishes under in the canonical DB."""
+    return CATEGORY_KEY_TO_DISPLAY.get(cat, cat)
+
+
+def build_existing_by_subcat(raw_existing: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """Flatten a canonical categories JSON into {Category/subcategory: [...]}.
+
+    Normalises each record's stored category (which may be a long display name
+    such as "Renewable Energy") back to the LLM-side key so the keys line up
+    with freshly scored records and the append-only merge retains everything.
+    """
+    out: dict[str, list[dict[str, Any]]] = {}
+    for _cat_name, cat_data in (raw_existing.get("categories") or {}).items():
+        if not isinstance(cat_data, dict):
+            continue
+        for m in cat_data.get("milestones", []) or []:
+            if not isinstance(m, dict):
+                continue
+            rec = dict(m)
+            rec["category"] = normalize_category(rec.get("category") or "Unknown")
+            sub = rec.get("subcategory") or "general"
+            out.setdefault(f"{rec['category']}/{sub}", []).append(rec)
+    return out
+
 
 def _match_gazetteer(text: str) -> dict[str, Any] | None:
     """Best gazetteer entry whose key is a substring of ``text``.
@@ -578,7 +622,7 @@ def build_categories_output() -> dict[str, Any]:
     for cat_name, cat_data in CATEGORIES.items():
         subcats = DYNAMIC_SUBCATEGORIES.get(cat_name, cat_data.get("subcategories", []))
         output_categories[cat_name] = {
-            "name": cat_name,
+            "name": display_category(cat_name),
             "icon": cat_data.get("icon", "📌"),
             "color": cat_data.get("color", "#aaaaaa"),
             "subcategories": subcats,
@@ -607,7 +651,7 @@ def generate_milestones_md(categories: dict[str, Any], existing_by_subcat: dict[
         milestones = cat_data.get("milestones", [])
 
         lines.extend([
-            f"## {i}. {cat_name} {icon}",
+            f"## {i}. {cat_data.get('name') or cat_name} {icon}",
             "",
             f"*Color: {color} · Subcategories: {len(subcats)}*",
             "",
@@ -616,7 +660,7 @@ def generate_milestones_md(categories: dict[str, Any], existing_by_subcat: dict[
         ])
 
         for j, m in enumerate(milestones, 1):
-            val = f"**{m.get('value', '—') or '—'}** {m.get('unit', '')}".strip()
+            val = '—' if m.get("value") is None else f"**{m['value']}** {m.get('unit', '')}".strip()
             title = m.get("title", "—")[:50]
             source = m.get("source", "—")[:20]
             date = m.get("date", "—")
@@ -704,18 +748,12 @@ def main() -> None:
     if EXISTING.exists():
         try:
             existing = json.loads(EXISTING.read_text())
-            for cat_name, cat_data in existing.get("categories", {}).items():
-                if not isinstance(cat_data, dict):
-                    continue
-                # Canonical files may key categories by snake_case with a
-                # "name" display field, or directly by display name. Normalise
-                # to the display name so it matches freshly scored records.
-                display = cat_data.get("name") or cat_name
-                for m in cat_data.get("milestones", []) or []:
-                    if not isinstance(m, dict):
-                        continue
-                    sub = m.get("subcategory") or "general"
-                    existing_by_subcat.setdefault(f"{display}/{sub}", []).append(m)
+            if isinstance(existing, dict):
+                # Flatten + normalise display-name categories back to LLM-side
+                # keys (see CATEGORY_DISPLAY_TO_KEY) so the append-only merge
+                # retains every previously published record instead of dropping
+                # anything keyed under a long display name.
+                existing_by_subcat = build_existing_by_subcat(existing)
         except (OSError, ValueError, json.JSONDecodeError) as e:
             log.warning("Could not load existing milestones: %s", e)
 
@@ -756,13 +794,14 @@ def main() -> None:
     # ---- Distribute merged records into their categories ----------------
     for key, records in merged.items():
         display, sub = key.split("/", 1)
-        cat_data = output_categories.get(display)
+        cat_data = output_categories.get(display) or output_categories.get(normalize_category(display))
         if cat_data is None:
             log.warning("Retained milestone(s) for unknown category %r — skipped", display)
             continue
         if sub not in cat_data["subcategories"]:
             cat_data["subcategories"].append(sub)
         for m in records:
+            m["category"] = display_category(m["category"])
             cat_data["milestones"].append(m)
             geo = m.get("geolocation") or {}
             if geo.get("lat") and geo.get("lon"):
