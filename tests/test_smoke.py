@@ -146,12 +146,19 @@ class TestLlmScorer(unittest.TestCase):
         self.assertEqual(g["lat"], 0.0)
 
     def test_geocode_uses_location_when_source_unmatched(self):
-        g = llm_scorer.get_geocode("Nature Biotechnology", location="Nanjing, China")
+        g = llm_scorer.get_geocode("Unlisted University of the Far East", location="Nanjing, China")
         self.assertEqual(g["lat"], 32.0603)
 
     def test_geocode_known_source_beats_location(self):
         g = llm_scorer.get_geocode("IBM", location="San Francisco, USA")
         self.assertEqual(g["lat"], 41.0323)
+
+    def test_geocode_longest_key_wins_over_prefix(self):
+        # "nif" is a prefix of "nifs" but they are different labs (Livermore NIF
+        # vs Japan's NIFS). NIFS must never resolve to Livermore.
+        self.assertEqual(llm_scorer.get_geocode("NIFS Japan")["lat"], 35.6762)
+        self.assertEqual(llm_scorer.get_geocode("NIF Livermore")["lat"], 37.6881)
+        self.assertEqual(llm_scorer.get_geocode("NIFS")["lat"], 35.6762)
 
     def test_normalize_value_none(self):
         self.assertEqual(llm_scorer.normalize_value(None, "km"), 0.0)
@@ -227,6 +234,22 @@ class TestLlmScorer(unittest.TestCase):
         self.assertEqual(m["value"], 4158)
         self.assertEqual(m["subcategory"], "qubit_count")
         self.assertEqual(m["geolocation"]["lat"], 41.0323)  # IBM
+
+    def test_score_article_missing_summary_does_not_crash(self):
+        # RSS entries can carry a summary key set to null; scoring must not
+        # slice a None summary into a TypeError.
+        mock_result = {
+            "is_milestone": True,
+            "category": "Biotechnology",
+            "subcategory": "gene_therapy",
+            "title": "Groundbreaking ex-vivo therapy",
+            "value": None,
+            "unit": None,
+        }
+        with patch.object(llm_scorer, "call_llm", return_value=mock_result):
+            m = llm_scorer.score_article({"title": "X", "summary": None})
+        self.assertIsNotNone(m)
+        self.assertEqual(m["summary"], "")
 
     def test_score_article_unknown_category_auto_added(self):
         article = {"title": "Robotic surgery breakthrough", "summary": "First remote robotic microsurgery"}

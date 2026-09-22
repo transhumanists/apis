@@ -141,6 +141,22 @@ DYNAMIC_SUBCATEGORIES: dict[str, list[str]] = {
 }
 
 
+def _match_gazetteer(text: str) -> dict[str, Any] | None:
+    """Best gazetteer entry whose key is a substring of ``text``.
+
+    Longest key wins so a shorter key never shadows a longer one that shares it
+    as a prefix (e.g. "nif" must not capture "nifs" - they are different labs
+    on different continents).
+    """
+    blob = (text or "").lower()
+    best: tuple[int, dict[str, Any]] | None = None
+    for key, geo in KNOWN_GEOCODES.items():
+        if key in blob:
+            if best is None or len(key) > best[0]:
+                best = (len(key), geo)
+    return best[1] if best is not None else None
+
+
 def get_geocode(source: str, location: str = "") -> dict[str, Any]:
     """Resolve a milestone to a map pin.
 
@@ -148,17 +164,16 @@ def get_geocode(source: str, location: str = "") -> dict[str, Any]:
     LLM-reported location ("<city>, <country>") so every milestone gets a pin
     instead of falling back to lat/lon 0.0 (which drops it off the world map).
     """
-    s = (source or "").lower()
-    for key, geo in KNOWN_GEOCODES.items():
-        if key in s:
-            return geo
+    geo = _match_gazetteer(source)
+    if geo is not None:
+        return geo
 
     ref = (location or "").lower()
-    for key, geo in KNOWN_GEOCODES.items():
-        city = str(geo.get("name", "")).lower()
+    for key, candidate in KNOWN_GEOCODES.items():
+        city = str(candidate.get("name", "")).lower()
         city_name = city.split(",")[0].strip()
         if city_name and (city_name in ref or key in ref):
-            return geo
+            return candidate
     return {"lat": 0.0, "lon": 0.0, "name": source or location or "Unknown"}
 
 
@@ -510,8 +525,8 @@ def score_article(article: dict[str, Any]) -> dict[str, Any] | None:
         log.error("No LLM API key set — set OPENAI_API_KEY or ANTHROPIC_API_KEY (or enable LLM_ROUTER_ENABLED=true with at least one free provider key)")
         sys.exit(1)
 
-    title = article.get("title", "")
-    summary = article.get("summary", "")
+    title = article.get("title") or ""
+    summary = article.get("summary") or ""
     if not title:
         return None
 
@@ -622,7 +637,8 @@ def event_value(m: dict[str, Any]) -> str:
     """Value string for an event/map pin.
 
     Milestones without a numeric metric carry the milestone info string (their
-    title) instead of an empty value or a misleading "0".
+    summary, falling back to the title) instead of an empty value or a
+    misleading "0".
     """
     if m.get("value") is not None:
         return f"{m.get('value')} {m.get('unit') or ''}".strip()
