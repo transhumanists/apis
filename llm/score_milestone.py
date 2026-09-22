@@ -52,7 +52,6 @@ try:
         raise ValueError
     MAX_ARTICLES_TO_SCORE = _MAX_ARTICLES_VAL
 except ValueError:
-    log.warning("Invalid MAX_ARTICLES_TO_SCORE=%r, defaulting to 45", _MAX_ARTICLES_RAW)
     MAX_ARTICLES_TO_SCORE = 45
 RATE_LIMIT_DELAY_ARTICLES = 50
 
@@ -595,8 +594,9 @@ def build_categories_output() -> dict[str, Any]:
     return output_categories
 
 
-def generate_milestones_md(categories: dict[str, Any]) -> str:
-    now = _utc_now()
+def generate_milestones_md(categories: dict[str, Any], now: str | None = None) -> str:
+    if now is None:
+        now = _utc_now()
     lines = [
         "# Human Progress Milestones",
         "",
@@ -734,7 +734,7 @@ def main() -> None:
     OUT_MILESTONES.write_text(json.dumps(output, indent=2, ensure_ascii=False))
     OUT_EVENTS.write_text(json.dumps(events_out, indent=2, ensure_ascii=False))
 
-    md_content = generate_milestones_md(output_categories)
+    md_content = generate_milestones_md(output_categories, now)
     OUT_MD.write_text(md_content)
 
     log.info(
