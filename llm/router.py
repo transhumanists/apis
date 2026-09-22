@@ -327,6 +327,7 @@ class FreeModelsRouter:
                 else:
                     self.state.paid_requests_used += 1
                 self._mark_state_dirty()
+                self._flush_state()
                 return ChatResult(
                     content=content,
                     model=choice.model,
@@ -402,7 +403,16 @@ class FreeModelsRouter:
             try:
                 with urllib.request.urlopen(req, timeout=30) as resp:
                     result = json.loads(resp.read())
-                    return result["choices"][0]["message"]["content"]
+                    choices = result.get("choices")
+                    if not choices:
+                        raise RuntimeError(f"Unexpected response format: {result}")
+                    message = choices[0].get("message")
+                    if not message:
+                        raise RuntimeError(f"Missing message in response: {result}")
+                    content = message.get("content")
+                    if content is None:
+                        raise RuntimeError(f"Missing content in message: {result}")
+                    return content
             except urllib.error.HTTPError as e:
                 body = e.read().decode("utf-8", errors="replace")
                 if e.code in (429, 500, 502, 503, 504) and attempt < max_retries - 1:

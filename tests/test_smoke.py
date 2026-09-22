@@ -143,7 +143,7 @@ class TestLlmScorer(unittest.TestCase):
 
     def test_geocode_unknown(self):
         g = llm_scorer.get_geocode("Nonsense Source")
-        self.assertEqual(g["lat"], 0.0)
+        self.assertIsNone(g)
 
     def test_normalize_value_none(self):
         self.assertEqual(llm_scorer.normalize_value(None, "km"), 0.0)

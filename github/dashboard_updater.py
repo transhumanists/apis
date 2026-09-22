@@ -98,37 +98,41 @@ def get_file_sha(owner: str, repo: str, path: str) -> str | None:
 
 
 def upsert_file(owner: str, repo: str, path: str, content: bytes, message: str) -> bool:
-    try:
-        sha = get_file_sha(owner, repo, path)
-    except FileFetchError as e:
-        log.error("Cannot fetch SHA for %s/%s/%s — skipping update: %s", owner, repo, path, e)
-        return False
-    payload = {
-        "message": message,
-        "content": base64.b64encode(content).decode(),
-        "branch": "main",
-    }
-    if sha:
-        payload["sha"] = sha
-    try:
-        resp = _retry_request(
-            "PUT",
-            f"{API}/repos/{owner}/{repo}/contents/{path}",
-            headers=_headers(),
-            json=payload,
-        )
-        if resp.status_code in (200, 201):
-            log.info("Updated %s/%s/%s", owner, repo, path)
-            return True
-        if resp.status_code == 409:
-            log.warning("Conflict on %s/%s/%s — skipping", owner, repo, path)
+    max_upsert_retries = 2
+    for attempt in range(max_upsert_retries):
+        try:
+            sha = get_file_sha(owner, repo, path)
+        except FileFetchError as e:
+            log.error("Cannot fetch SHA for %s/%s/%s — skipping update: %s", owner, repo, path, e)
             return False
-        log.error("Failed %s/%s/%s: HTTP %d — %s", owner, repo, path,
-                  resp.status_code, resp.text[:200])
-        return False
-    except requests.RequestException as e:
-        log.error("Error upserting %s/%s/%s: %s", owner, repo, path, e)
-        return False
+        payload = {
+            "message": message,
+            "content": base64.b64encode(content).decode(),
+            "branch": "main",
+        }
+        if sha:
+            payload["sha"] = sha
+        try:
+            resp = _retry_request(
+                "PUT",
+                f"{API}/repos/{owner}/{repo}/contents/{path}",
+                headers=_headers(),
+                json=payload,
+            )
+            if resp.status_code in (200, 201):
+                log.info("Updated %s/%s/%s", owner, repo, path)
+                return True
+            if resp.status_code == 409 and attempt < max_upsert_retries - 1:
+                log.warning("Conflict on %s/%s/%s (attempt %d/%d) — retrying with fresh SHA",
+                            owner, repo, path, attempt + 1, max_upsert_retries)
+                time.sleep(1)
+                continue
+            log.error("Failed %s/%s/%s: HTTP %d — %s", owner, repo, path,
+                      resp.status_code, resp.text[:200])
+            return False
+        except requests.RequestException as e:
+            log.error("Error upserting %s/%s/%s: %s", owner, repo, path, e)
+            return False
 
 
 # ---- Activity generation ----

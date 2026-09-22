@@ -44,7 +44,8 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 LLM_ROUTER_ENABLED = os.environ.get("LLM_ROUTER_ENABLED", "true").lower() in ("1", "true", "yes")
 MAX_TOKENS = 1024
-# Max articles to score per run; configurable via env var (default 45 for OpenRouter free tier)
+# Max articles to score per run; configurable via env var.
+# Code default is 45, but pipeline overrides to 5 to fit OpenRouter 50 req/day free tier.
 _MAX_ARTICLES_RAW = os.environ.get("MAX_ARTICLES_TO_SCORE", "45")
 try:
     _MAX_ARTICLES_VAL = int(_MAX_ARTICLES_RAW)
@@ -52,13 +53,19 @@ try:
         raise ValueError
     MAX_ARTICLES_TO_SCORE = _MAX_ARTICLES_VAL
 except ValueError:
+    # log not available yet (initialized at module level below)
+    # logging.warning would use root logger which isn't configured yet
     MAX_ARTICLES_TO_SCORE = 45
 RATE_LIMIT_DELAY_ARTICLES = 50
 
 # Router data files (vendored from neohiro/LLM). When LLM_ROUTER_ENABLED=true,
 # the FreeModelsRouter picks the best available free model across all configured
 # providers and cascades through them on failure.
-ROUTER_DATA_DIR = ROOT / "data"
+# The llm-action (neohiro/llm-action@v1) writes the freshest LLM data into
+# ACTION_DATA_DIR at runtime; prefer that over any repo-owned snapshot so the
+# scoring job always sees newly added upstream providers/models (e.g. newest
+# Groq models or Mistral) without a repo redeploy.
+ROUTER_DATA_DIR = pathlib.Path(os.environ.get("ACTION_DATA_DIR", ROOT / "data"))
 # Module-level reference to FreeModelsRouter so tests can patch it.
 # Set on first successful _get_router() call; remains None if router is
 # unavailable (e.g. vendored data missing).
@@ -148,12 +155,12 @@ DYNAMIC_SUBCATEGORIES: dict[str, list[str]] = {
 }
 
 
-def get_geocode(source: str) -> dict[str, Any]:
+def get_geocode(source: str) -> dict[str, Any] | None:
     s = (source or "").lower()
     for key, geo in KNOWN_GEOCODES.items():
         if key in s:
             return geo
-    return {"lat": 0.0, "lon": 0.0, "name": source or "Unknown"}
+    return None
 
 
 def _utc_now() -> str:
@@ -562,6 +569,8 @@ def score_article(article: dict[str, Any]) -> dict[str, Any] | None:
     safe_sub = subcategory or "general"
     mid = "ms-" + sha1(f"{safe_cat}{safe_sub}{title}{date}".encode()).hexdigest()[:12]
 
+    geolocation = {"lat": geo["lat"], "lon": geo["lon"]} if geo else {"lat": 0.0, "lon": 0.0}
+
     return {
         "id": mid,
         "title": (result.get("title") or title)[:200],
@@ -576,7 +585,7 @@ def score_article(article: dict[str, Any]) -> dict[str, Any] | None:
         "is_record": result.get("is_record", False),
         "is_breakthrough": result.get("is_breakthrough", False),
         "is_new": True,
-        "geolocation": {"lat": geo["lat"], "lon": geo["lon"]},
+        "geolocation": geolocation,
     }
 
 
@@ -655,13 +664,16 @@ def main() -> None:
     articles = raw.get("articles", []) if isinstance(raw, dict) else raw
     log.info("Loaded %d articles", len(articles))
 
-    existing_by_subcat: dict[str, Any] = {}
+    existing_by_subcat: dict[str, list[dict[str, Any]]] = {}
     if EXISTING.exists():
         try:
             existing = json.loads(EXISTING.read_text())
             for cat_name, cat_data in existing.get("categories", {}).items():
-                for sub_list in cat_data.get("subcategories", []):
-                    existing_by_subcat[f"{cat_name}/{sub_list}"] = cat_data.get("milestones", [])
+                milestones = cat_data.get("milestones", [])
+                for m in milestones:
+                    sub = m.get("subcategory", "general")
+                    key = f"{cat_name}/{sub}"
+                    existing_by_subcat.setdefault(key, []).append(m)
         except (OSError, ValueError, json.JSONDecodeError) as e:
             log.warning("Could not load existing milestones: %s", e)
 
@@ -704,7 +716,7 @@ def main() -> None:
                 else:
                     m["is_new"] = True
                 output_categories[cat_name]["milestones"].append(m)
-                if m.get("geolocation", {}).get("lat"):
+                if m.get("geolocation", {}).get("lat") is not None:
                     events.append({
                         "id": "ev-" + m["id"],
                         "title": m["title"],

@@ -4,6 +4,7 @@ on:
   schedule:
     # One run per day: the router's free tier is OpenRouter's 50-free-
     # requests/day allowance (account below the $10 funding threshold).
+    # Pipeline overrides MAX_ARTICLES_TO_SCORE=5 via env; code default is 45.
     # With 5 articles + retries, leaves ~35 req headroom in 50 req/day free tier.
     - cron: '0 6 * * *'
   workflow_dispatch:
@@ -101,6 +102,7 @@ jobs:
           huggingface-key: ${{ secrets.HUGGINGFACE_API_KEY }}
           nvidia-key: ${{ secrets.NVIDIA_API_KEY }}
           cohere-key: ${{ secrets.COHERE_API_KEY }}
+          mistral-key: ${{ secrets.MISTRAL_API_KEY }}
           data-dir: ${{ runner.temp }}/llm-router-data
           python-version: '3.12'
           cache-pip: false
@@ -111,12 +113,13 @@ jobs:
         run: python -m pip install -r requirements.txt --quiet
 
       - name: Run scoring
-        # The router here is repo-owned (llm/router.py + data/*.json); the
-        # llm-action above only bundles its own upstream data into runner.temp
-        # and exports the provider API keys. Router candidates are gated on
-        # which of those keys are actually present.
+        # The router module here is repo-owned (llm/router.py); the data comes
+        # from ACTION_DATA_DIR, which the llm-action above fills with fresh
+        # neohiro/LLM data (free providers/models incl. newest Groq + Mistral).
+        # Router candidates are gated on which of those keys are present.
         env:
           MAX_ARTICLES_TO_SCORE: ${{ github.event.inputs.max_articles || '5' }}
+          ACTION_DATA_DIR: ${{ steps.llm-router.outputs.data-dir }}
         run: python llm/score_milestone.py
 
       - name: Guard against publishing an empty dataset

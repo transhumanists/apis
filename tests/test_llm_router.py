@@ -166,7 +166,7 @@ class TestFreeModelsRouterImport(unittest.TestCase):
             unlimited_json=str(ROOT / "data" / "unlimited.json"),
             state_path=str(ROOT / "data" / "router_state.json"),
         )
-        choice = r.pick(task="classify")
+        choice = r.pick(task="classify", preferred_tier="free")
         self.assertIsNotNone(choice.model)
         self.assertIsNotNone(choice.provider)
         self.assertIn(choice.tier, ("unlimited", "free", "paid"))
