@@ -73,7 +73,8 @@ TIER_ORDER = ["unlimited", "free", "paid"]
 # ─── Main router ──────────────────────────────────────────────────────────────
 
 class FreeModelsRouter:
-    CASCADE_RETRIES = 3
+    # Try up to 20 candidates (covers all 15+ classify-capable free models)
+    CASCADE_RETRIES = 20
     HEALTH_GATE_MS = 3000
     VERIFY_DAYS = 7
 
