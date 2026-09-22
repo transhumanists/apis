@@ -6,49 +6,16 @@
   },
   "by_country": {
     "US": [
-      "groq:llama-3.1-70b-versatile",
-      "groq:llama-3.1-8b-instant",
-      "cerebras:llama3.1-70b",
-      "cerebras:qwen2.5-72b-instruct",
-      "nvidia:meta/llama-3.1-70b-instruct",
-      "nvidia:meta/llama-3.1-8b-instruct",
-      "nvidia:mistralai/mistral-nemo-12b-instruct",
-      "nvidia:nvidia/llama-3.1-nemotron-70b-instruct",
-      "together:meta-llama/Llama-3.2-3B-Instruct",
-      "together:Qwen/Qwen2.5-7B-Instruct-Turbo",
-      "together:mistralai/Mistral-7B-Instruct-v0.3",
       "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
       "openrouter:qwen/qwen3.8-27b:free",
-      "openrouter:google/gemma-4-31b-it:free",
-      "huggingface:meta-llama/Llama-3.2-3B-Instruct",
-      "huggingface:Qwen/Qwen2.5-7B-Instruct",
-      "huggingface:mistralai/Mistral-7B-Instruct-v0.3"
+      "openrouter:google/gemma-4-31b-it:free"
     ],
-    "LOCAL": [
-      "ollama:llama3.2:3b",
-      "ollama:llama3.2:1b",
-      "ollama:qwen2.5:7b",
-      "ollama:qwen2.5:14b",
-      "ollama:mistral:7b",
-      "ollama:phi3.5:3.8b",
-      "ollama:gemma2:2b",
-      "ollama:gemma2:9b",
-      "ollama:deepseek-coder-v2:16b",
-      "ollama:codellama:13b",
-      "ollama:llava:7b",
-      "ollama:nomic-embed-text"
-    ]
+    "LOCAL": []
   },
   "by_provider_count": {
-    "cerebras": 2,
-    "groq": 2,
-    "huggingface": 3,
-    "nvidia": 4,
-    "ollama": 12,
-    "openrouter": 3,
-    "together": 3
+    "openrouter": 3
   },
-  "total_models": 29,
-  "total_countries": 2,
+  "total_models": 3,
+  "total_countries": 1,
   "public_mirror_safe": true
 }

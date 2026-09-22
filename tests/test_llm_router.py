@@ -62,9 +62,9 @@ class TestVendorDataPresent(unittest.TestCase):
         p = ROOT / "data" / "providers.json"
         self.assertTrue(p.exists(), f"Missing vendored file: {p}")
         data = json.loads(p.read_text(encoding="utf-8-sig"))
-        self.assertIn("groq", data)
-        self.assertIn("base_url", data["groq"])
-        self.assertIn("env_key", data["groq"])
+        self.assertIn("openrouter", data)
+        self.assertIn("base_url", data["openrouter"])
+        self.assertIn("env_key", data["openrouter"])
 
     def test_models_json_vendored(self):
         p = ROOT / "data" / "models.json"
@@ -155,6 +155,7 @@ class TestFreeModelsRouterImport(unittest.TestCase):
         self.assertGreater(len(r.models), 0)
 
     def test_router_pick_returns_model_choice(self):
+        os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
         sys.path.insert(0, str(ROOT / "llm"))
         from router import FreeModelsRouter
 
@@ -169,6 +170,7 @@ class TestFreeModelsRouterImport(unittest.TestCase):
         self.assertIsNotNone(choice.model)
         self.assertIsNotNone(choice.provider)
         self.assertIn(choice.tier, ("unlimited", "free", "paid"))
+        self.assertEqual(choice.provider, "openrouter")
 
 
 class TestCallLlmRouter(unittest.TestCase):
