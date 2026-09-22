@@ -11,7 +11,6 @@ import json
 import logging
 import os
 import pathlib
-import random
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -80,16 +79,17 @@ class FileFetchError(Exception):
         super().__init__(f"GitHub API error {status} for {owner}/{repo}/{path}: {message}")
 
 
-def get_file_sha(owner: str, repo: str, path: str) -> str | None:
-    """Return the blob SHA for a file, or None if it does not exist yet.
-    Raises FileFetchError for any non-404, non-200 response."""
+def get_file_content(owner: str, repo: str, path: str) -> tuple[str | None, bytes | None]:
+    """Return (blob SHA, decoded bytes) for a file, or (None, None) if it does
+    not exist yet. Raises FileFetchError for any non-404, non-200 response."""
     try:
         r = _retry_request("GET", f"{API}/repos/{owner}/{repo}/contents/{path}",
                            headers=_headers())
         if r.status_code == 200:
-            return r.json().get("sha")
+            body = r.json()
+            return body.get("sha"), base64.b64decode(body.get("content", "") or "")
         if r.status_code == 404:
-            return None
+            return None, None
         raise FileFetchError(owner, repo, path, r.status_code, r.text[:200])
     except requests.RequestException as e:
         resp = getattr(e, "response", None)
@@ -97,11 +97,20 @@ def get_file_sha(owner: str, repo: str, path: str) -> str | None:
         raise FileFetchError(owner, repo, path, status, str(e)) from e
 
 
+def get_file_sha(owner: str, repo: str, path: str) -> str | None:
+    """Return the blob SHA for a file, or None if it does not exist yet."""
+    sha, _ = get_file_content(owner, repo, path)
+    return sha
+
+
 def upsert_file(owner: str, repo: str, path: str, content: bytes, message: str) -> bool:
     try:
-        sha = get_file_sha(owner, repo, path)
+        sha, existing = get_file_content(owner, repo, path)
     except FileFetchError as e:
         log.error("Cannot fetch SHA for %s/%s/%s — skipping update: %s", owner, repo, path, e)
+        return False
+    if existing is not None and existing == content:
+        log.info("Unchanged %s/%s/%s — no commit needed", owner, repo, path)
         return False
     payload = {
         "message": message,
@@ -133,7 +142,11 @@ def upsert_file(owner: str, repo: str, path: str, content: bytes, message: str) 
 
 # ---- Activity generation ----
 def generate_activity() -> dict:
-    """Generate 30-day activity from recent milestones.json."""
+    """Generate a 30-day activity series from the current milestones.json.
+
+    Falls back to an all-zero series (plus no spikes) when there is no parsed
+    milestone data - never fabricates a random-looking chart.
+    """
     ms_path = pathlib.Path(__file__).parent.parent / "data" / "milestones.json"
     days = []
     today = datetime.now(timezone.utc)
@@ -161,12 +174,10 @@ def generate_activity() -> dict:
             log.warning("Could not parse milestones for activity: %s", e)
 
     if not days:
-        random.seed(int(today.timestamp()) // 86400)
+        log.warning("No milestone dates found - emitting a zero activity series instead of fake data")
         for i in range(29, -1, -1):
             d = today - timedelta(days=i)
-            dow = d.weekday()
-            base = [3, 5, 8, 12, 14, 9, 6][dow]
-            days.append({"date": d.strftime("%Y-%m-%d"), "count": base + random.randint(0, 5)})
+            days.append({"date": d.strftime("%Y-%m-%d"), "count": 0})
 
     return {
         "last_update": _utc_now(),

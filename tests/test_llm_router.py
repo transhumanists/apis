@@ -347,5 +347,36 @@ class TestScoreArticleRouterOnly(unittest.TestCase):
                         self.scorer.score_article({"title": "X", "summary": "y"})
 
 
+class TestRouterStateSaveBatching(unittest.TestCase):
+    """router_state.json must not be rewritten on every chat() request."""
+
+    def test_state_save_is_throttled_and_flush_persists(self):
+        sys.path.insert(0, str(ROOT / "llm"))
+        from router import FreeModelsRouter
+
+        tmp_state = ROOT / "data" / "router_state.test.json"
+        r = FreeModelsRouter(state_path=str(tmp_state))
+        calls = {"n": 0}
+        orig_save = r._save_state
+
+        def counting_save():
+            calls["n"] += 1
+            orig_save()
+
+        r._save_state = counting_save  # type: ignore[method-assign]
+        for _ in range(6):
+            r.state.total_requests += 1
+            r._maybe_save_state()
+        self.assertEqual(calls["n"], 1)  # only the STATE_SAVE_EVERY boundary
+
+        r.flush_state()
+        self.assertEqual(calls["n"], 2)
+        self.assertTrue(tmp_state.exists())
+        try:
+            tmp_state.unlink()
+        except OSError:
+            pass
+
+
 if __name__ == "__main__":
     unittest.main()

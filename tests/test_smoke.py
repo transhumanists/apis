@@ -145,6 +145,21 @@ class TestLlmScorer(unittest.TestCase):
         g = llm_scorer.get_geocode("Nonsense Source")
         self.assertEqual(g["lat"], 0.0)
 
+    def test_geocode_uses_location_when_source_unmatched(self):
+        g = llm_scorer.get_geocode("Unlisted University of the Far East", location="Nanjing, China")
+        self.assertEqual(g["lat"], 32.0603)
+
+    def test_geocode_known_source_beats_location(self):
+        g = llm_scorer.get_geocode("IBM", location="San Francisco, USA")
+        self.assertEqual(g["lat"], 41.0323)
+
+    def test_geocode_longest_key_wins_over_prefix(self):
+        # "nif" is a prefix of "nifs" but they are different labs (Livermore NIF
+        # vs Japan's NIFS). NIFS must never resolve to Livermore.
+        self.assertEqual(llm_scorer.get_geocode("NIFS Japan")["lat"], 35.6762)
+        self.assertEqual(llm_scorer.get_geocode("NIF Livermore")["lat"], 37.6881)
+        self.assertEqual(llm_scorer.get_geocode("NIFS")["lat"], 35.6762)
+
     def test_normalize_value_none(self):
         self.assertEqual(llm_scorer.normalize_value(None, "km"), 0.0)
 
@@ -219,6 +234,22 @@ class TestLlmScorer(unittest.TestCase):
         self.assertEqual(m["value"], 4158)
         self.assertEqual(m["subcategory"], "qubit_count")
         self.assertEqual(m["geolocation"]["lat"], 41.0323)  # IBM
+
+    def test_score_article_missing_summary_does_not_crash(self):
+        # RSS entries can carry a summary key set to null; scoring must not
+        # slice a None summary into a TypeError.
+        mock_result = {
+            "is_milestone": True,
+            "category": "Biotechnology",
+            "subcategory": "gene_therapy",
+            "title": "Groundbreaking ex-vivo therapy",
+            "value": None,
+            "unit": None,
+        }
+        with patch.object(llm_scorer, "call_llm", return_value=mock_result):
+            m = llm_scorer.score_article({"title": "X", "summary": None})
+        self.assertIsNotNone(m)
+        self.assertEqual(m["summary"], "")
 
     def test_score_article_unknown_category_auto_added(self):
         article = {"title": "Robotic surgery breakthrough", "summary": "First remote robotic microsurgery"}
@@ -301,6 +332,129 @@ class TestLlmScorer(unittest.TestCase):
         self.assertIn("CRISPR record", md)
         self.assertIn("First robotic surgery", md)
         self.assertIn("Auto-generated", md)
+
+    def test_merge_with_existing_retains_records_when_no_new_scored(self):
+        """A run that scores nothing must NOT collapse the published dataset."""
+        existing = {
+            "Biotechnology/biosensors": [
+                {"id": "ms-aaa", "category": "Biotechnology", "subcategory": "biosensors",
+                 "title": "Nanopore sensor", "value": 98.7, "date": "2026-09-15", "is_new": True},
+            ],
+            "Quantum Physics/qubit_count": [
+                {"id": "ms-bbb", "category": "Quantum Physics", "subcategory": "qubit_count",
+                 "title": "IBM 4,158 qubits", "value": 4158, "date": "2026-08-22"},
+            ],
+        }
+        merged = llm_scorer.merge_with_existing(existing, {})
+        self.assertEqual(len(merged), 2)
+        total = sum(len(v) for v in merged.values())
+        self.assertEqual(total, 2)
+        # Retained records lose their "is_new" marker.
+        for records in merged.values():
+            for m in records:
+                self.assertFalse(m.get("is_new"))
+
+    def test_merge_with_existing_keeps_previous_on_partial_scoring(self):
+        """Old collapse bug: only freshly scored subs survived (37 -> 4 -> 3)."""
+        existing = {
+            cat + "/" + sub: [
+                {"id": f"ms-{i}", "category": cat, "subcategory": sub,
+                 "title": f"{cat} {sub} milestone", "value": 100, "date": "2026-09-01"}
+            ]
+            for i, (cat, sub) in enumerate(
+                [("Biotechnology", "biosensors"), ("Energy", "fusion"), ("Spaceflight", "launch")]
+            )
+        }
+        # Only one new milestone arrives today, in a sub that already exists.
+        scored = {
+            "Biotechnology/biosensors": {
+                "id": "ms-new1", "category": "Biotechnology", "subcategory": "biosensors",
+                "title": "Newer nanopore", "value": 99.0, "date": "2026-09-22", "is_new": True,
+            }
+        }
+        merged = llm_scorer.merge_with_existing(existing, scored)
+        self.assertEqual(len(merged), 3)          # all three subs survive
+        self.assertEqual(sum(len(v) for v in merged.values()), 4)  # 3 old + 1 new
+
+    def test_merge_with_existing_replaces_same_id(self):
+        """Same-id update supersedes in place (no duplicate ids)."""
+        existing = {
+            "Biotechnology/biosensors": [
+                {"id": "ms-dup", "category": "Biotechnology", "subcategory": "biosensors",
+                 "title": "Old title", "value": 90.0, "date": "2026-09-01"},
+            ]
+        }
+        scored = {
+            "Biotechnology/biosensors": {
+                "id": "ms-dup", "category": "Biotechnology", "subcategory": "biosensors",
+                "title": "New title", "value": 99.0, "date": "2026-09-22", "is_record": True,
+            }
+        }
+        merged = llm_scorer.merge_with_existing(existing, scored)
+        records = merged["Biotechnology/biosensors"]
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["title"], "New title")
+        self.assertTrue(records[0]["is_new"])
+
+    def test_build_existing_by_subcat_normalizes_display_names(self):
+        """Canonical display names map to LLM-side keys so nothing is dropped."""
+        raw = {
+            "categories": {
+                "renewable_energy": {
+                    "name": "Renewable Energy",
+                    "milestones": [
+                        {"id": "ms-aa", "category": "Renewable Energy",
+                         "subcategory": "fusion", "title": "NIF Q>1", "value": 1.5,
+                         "date": "2026-07-12"},
+                    ],
+                }
+            }
+        }
+        existing = llm_scorer.build_existing_by_subcat(raw)
+        self.assertEqual(list(existing), ["Energy/fusion"])
+        self.assertEqual(existing["Energy/fusion"][0]["category"], "Energy")
+
+    def test_merge_retains_display_named_canonical_categories(self):
+        """Real canonical data (long display names) must survive a dry run.
+
+        Regression: the restored 40-record DB keys 14 records under long
+        display names ("Renewable Energy", "Spaceflight & Aeronautics",
+        "Military & Defense") while the pipeline keys by short LLM names
+        ("Energy", "Spaceflight", "Defense"). Without normalisation the
+        distribution silently dropped those buckets on a zero-article run
+        (26 of 40 kept, observed 2026-09-22 during an audit).
+        """
+        raw = {
+            "categories": {
+                cat_key: {
+                    "name": display,
+                    "milestones": [
+                        {"id": f"ms-{i}", "category": display, "subcategory": sub,
+                         "title": f"{display} {sub}", "value": 100, "date": "2026-09-01"}
+                    ],
+                }
+                for i, (cat_key, display, sub) in enumerate([
+                    ("Energy", "Renewable Energy", "fusion"),
+                    ("Spaceflight", "Spaceflight & Aeronautics", "launch"),
+                    ("Defense", "Military & Defense", "air_defense"),
+                    ("Quantum Physics", "Quantum Physics", "qubit_count"),
+                ])
+            }
+        }
+        existing = llm_scorer.build_existing_by_subcat(raw)
+        merged = llm_scorer.merge_with_existing(existing, {})
+        self.assertEqual(len(merged), 4)
+        self.assertIn("Energy/fusion", merged)
+        self.assertIn("Spaceflight/launch", merged)
+        self.assertIn("Defense/air_defense", merged)
+        self.assertIn("Quantum Physics/qubit_count", merged)
+
+    def test_build_categories_output_uses_display_names(self):
+        """Category containers publish the canonical long display names."""
+        out = llm_scorer.build_categories_output()
+        self.assertEqual(out["Energy"]["name"], "Renewable Energy")
+        self.assertEqual(out["Spaceflight"]["name"], "Spaceflight & Aeronautics")
+        self.assertEqual(out["Defense"]["name"], "Military & Defense")
 
 
 class TestSourceChecker(unittest.TestCase):
@@ -469,6 +623,34 @@ class TestDashboardUpdater(unittest.TestCase):
             with patch.object(dashboard_updater.time, "sleep", lambda *_: None):
                 ok = dashboard_updater.upsert_file("owner", "repo", "data/x.json", b"{}", "msg")
         self.assertFalse(ok)
+
+    def test_upsert_file_skips_unchanged_content(self):
+        import base64
+
+        from requests import Response
+        resp = Response()
+        resp.status_code = 200
+        resp.json = lambda: {"sha": "abc", "content": base64.b64encode(b"{}").decode()}
+        with patch.object(dashboard_updater.requests, "request", return_value=resp) as mock_req:
+            with patch.object(dashboard_updater.time, "sleep", lambda *_: None):
+                ok = dashboard_updater.upsert_file("owner", "repo", "data/x.json", b"{}", "msg")
+        self.assertFalse(ok)
+        # Only the GET happened — no wasteful PUT/commit for identical content.
+        for call in mock_req.call_args_list:
+            self.assertEqual(call.args[0], "GET")
+
+    def test_upsert_file_puts_when_content_differs(self):
+        from requests import Response
+        get_resp = Response()
+        get_resp.status_code = 200
+        get_resp.json = lambda: {"sha": "old", "content": "e30="}  # b"{}"
+        put_resp = Response()
+        put_resp.status_code = 200
+        put_resp.json = lambda: {"content": {}}
+        with patch.object(dashboard_updater.requests, "request", side_effect=[get_resp, put_resp]):
+            with patch.object(dashboard_updater.time, "sleep", lambda *_: None):
+                ok = dashboard_updater.upsert_file("owner", "repo", "data/x.json", b"{1}", "msg")
+        self.assertTrue(ok)
 
 
 class TestJsonSchemas(unittest.TestCase):
