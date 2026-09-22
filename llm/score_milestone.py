@@ -612,7 +612,7 @@ def merge_with_existing(existing_by_subcat: dict[str, list[dict[str, Any]]],
     """
     merged: dict[str, list[dict[str, Any]]] = {}
     seen_ids: set[str] = set()
-    for key, records in existing_by_subcat.items():
+    for _key, records in existing_by_subcat.items():
         for m in records:
             mid = m.get("id") or _stable_id(m)
             if mid in seen_ids:
