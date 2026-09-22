@@ -145,6 +145,14 @@ class TestLlmScorer(unittest.TestCase):
         g = llm_scorer.get_geocode("Nonsense Source")
         self.assertEqual(g["lat"], 0.0)
 
+    def test_geocode_uses_location_when_source_unmatched(self):
+        g = llm_scorer.get_geocode("Nature Biotechnology", location="Nanjing, China")
+        self.assertEqual(g["lat"], 32.0603)
+
+    def test_geocode_known_source_beats_location(self):
+        g = llm_scorer.get_geocode("IBM", location="San Francisco, USA")
+        self.assertEqual(g["lat"], 41.0323)
+
     def test_normalize_value_none(self):
         self.assertEqual(llm_scorer.normalize_value(None, "km"), 0.0)
 
@@ -532,6 +540,34 @@ class TestDashboardUpdater(unittest.TestCase):
             with patch.object(dashboard_updater.time, "sleep", lambda *_: None):
                 ok = dashboard_updater.upsert_file("owner", "repo", "data/x.json", b"{}", "msg")
         self.assertFalse(ok)
+
+    def test_upsert_file_skips_unchanged_content(self):
+        import base64
+
+        from requests import Response
+        resp = Response()
+        resp.status_code = 200
+        resp.json = lambda: {"sha": "abc", "content": base64.b64encode(b"{}").decode()}
+        with patch.object(dashboard_updater.requests, "request", return_value=resp) as mock_req:
+            with patch.object(dashboard_updater.time, "sleep", lambda *_: None):
+                ok = dashboard_updater.upsert_file("owner", "repo", "data/x.json", b"{}", "msg")
+        self.assertFalse(ok)
+        # Only the GET happened — no wasteful PUT/commit for identical content.
+        for call in mock_req.call_args_list:
+            self.assertEqual(call.args[0], "GET")
+
+    def test_upsert_file_puts_when_content_differs(self):
+        from requests import Response
+        get_resp = Response()
+        get_resp.status_code = 200
+        get_resp.json = lambda: {"sha": "old", "content": "e30="}  # b"{}"
+        put_resp = Response()
+        put_resp.status_code = 200
+        put_resp.json = lambda: {"content": {}}
+        with patch.object(dashboard_updater.requests, "request", side_effect=[get_resp, put_resp]):
+            with patch.object(dashboard_updater.time, "sleep", lambda *_: None):
+                ok = dashboard_updater.upsert_file("owner", "repo", "data/x.json", b"{1}", "msg")
+        self.assertTrue(ok)
 
 
 class TestJsonSchemas(unittest.TestCase):

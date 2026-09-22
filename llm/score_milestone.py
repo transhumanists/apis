@@ -118,6 +118,10 @@ KNOWN_GEOCODES: dict[str, dict[str, object]] = {
     "mi6":              {"lat": 51.4880, "lon": -0.1605, "name": "London, UK"},
     "mossad":           {"lat": 31.9686, "lon": 35.5064, "name": "Tel Aviv, Israel"},
     "plassf":           {"lat": 39.9042, "lon": 116.4074, "name": "Beijing, China"},
+    "alkermes":         {"lat": 42.3765, "lon": -71.2356, "name": "Waltham, MA, USA"},
+    "moderna":          {"lat": 42.3644, "lon": -71.0876, "name": "Cambridge, MA, USA"},
+    "fda":              {"lat": 39.0555, "lon": -77.0380, "name": "Silver Spring, MD, USA"},
+    "nature biotechnology": {"lat": 32.0603, "lon": 118.7969, "name": "Nanjing, China"},
 }
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -137,12 +141,25 @@ DYNAMIC_SUBCATEGORIES: dict[str, list[str]] = {
 }
 
 
-def get_geocode(source: str) -> dict[str, Any]:
+def get_geocode(source: str, location: str = "") -> dict[str, Any]:
+    """Resolve a milestone to a map pin.
+
+    Tries the curated gazetteer against the source name first, then against the
+    LLM-reported location ("<city>, <country>") so every milestone gets a pin
+    instead of falling back to lat/lon 0.0 (which drops it off the world map).
+    """
     s = (source or "").lower()
     for key, geo in KNOWN_GEOCODES.items():
         if key in s:
             return geo
-    return {"lat": 0.0, "lon": 0.0, "name": source or "Unknown"}
+
+    ref = (location or "").lower()
+    for key, geo in KNOWN_GEOCODES.items():
+        city = str(geo.get("name", "")).lower()
+        city_name = city.split(",")[0].strip()
+        if city_name and (city_name in ref or key in ref):
+            return geo
+    return {"lat": 0.0, "lon": 0.0, "name": source or location or "Unknown"}
 
 
 def _utc_now() -> str:
@@ -174,6 +191,7 @@ Output JSON only:
   "value": <number or null>,
   "unit": "<string or null>",
   "source": "<organisation/agency name>",
+  "location": "<city, country> of the organisation or lab behind this milestone (required)",
   "date": "<YYYY-MM-DD or null>",
   "is_record": <true if it is a new all-time record>,
   "is_breakthrough": <true if it is a major qualitative leap>,
@@ -313,9 +331,10 @@ def _ensure_no_bom(path: pathlib.Path) -> None:
 def _get_router() -> Any:
     """Lazy-init FreeModelsRouter singleton.
 
-    Re-reading 4 JSON files + writing router_state.json per article (200 calls)
-    is wasteful and creates lock contention on the state file. Cache the
-    router instance for the lifetime of this process.
+Re-reading 4 JSON files per article (200 calls) is wasteful; the router
+also throttles its router_state.json persistence (STATE_SAVE_EVERY) and is
+flushed once at the end of the batch. Cache the router instance for the
+lifetime of this process.
 
     Thread-safe: double-check locking pattern. Other threads block on the
     lock while the first thread completes init, then return the cached value.
@@ -515,7 +534,7 @@ def score_article(article: dict[str, Any]) -> dict[str, Any] | None:
 
     source = result.get("source") or article.get("source", "Unknown")
     date = result.get("date") or article.get("published") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    geo = get_geocode(source)
+    geo = get_geocode(source, result.get("location", ""))
 
     safe_cat = category or "Unknown"
     safe_sub = subcategory or "general"
@@ -597,6 +616,17 @@ def generate_milestones_md(categories: dict[str, Any], existing_by_subcat: dict[
         f"*Last auto-generated: {now} · Pipeline: `transhumanists/apis`*",
     ])
     return "\n".join(lines) + "\n"
+
+
+def event_value(m: dict[str, Any]) -> str:
+    """Value string for an event/map pin.
+
+    Milestones without a numeric metric carry the milestone info string (their
+    title) instead of an empty value or a misleading "0".
+    """
+    if m.get("value") is not None:
+        return f"{m.get('value')} {m.get('unit') or ''}".strip()
+    return m.get("summary") or m.get("title") or ""
 
 
 def merge_with_existing(existing_by_subcat: dict[str, list[dict[str, Any]]],
@@ -689,6 +719,10 @@ def main() -> None:
 
     log.info("Found %d candidate milestones across %d categories", len(all_milestones), len(CATEGORIES))
 
+    router = _get_router()
+    if router is not None:
+        router.flush_state()
+
     by_subcat: dict[str, Any] = {}
     for m in all_milestones:
         key = f"{m['category']}/{m['subcategory']}"
@@ -724,7 +758,7 @@ def main() -> None:
                     "id": ev_id,
                     "title": m["title"],
                     "category": m["category"],
-                    "value": f"{m.get('value', '')} {m.get('unit', '') or ''}".strip(),
+                    "value": event_value(m),
                     "source": m["source"],
                     "url": m.get("url"),
                     "date": m["date"],

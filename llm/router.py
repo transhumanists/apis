@@ -71,6 +71,10 @@ class FreeModelsRouter:
     CASCADE_RETRIES = 3
     HEALTH_GATE_MS = 3000
     VERIFY_DAYS = 7
+    # Persist router_state.json at most every N requests. Writing the whole
+    # state file on every chat() call adds ~N disk writes per pipeline run
+    # with no benefit - the state is only read again by the next run.
+    STATE_SAVE_EVERY = 5
 
     def __init__(
         self,
@@ -114,6 +118,17 @@ class FreeModelsRouter:
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self._state_path, "w", encoding="utf-8") as f:
             json.dump(asdict(self.state), f, indent=2)
+
+    def _maybe_save_state(self) -> None:
+        """Persist state at most every STATE_SAVE_EVERY requests."""
+        if self.state.total_requests % self.STATE_SAVE_EVERY == 0:
+            self._save_state()
+
+    def flush_state(self) -> None:
+        """Persist state immediately. Called at the end of a batch run so the
+        final counters/quota usage survive even if the last save did not land
+        on a STATE_SAVE_EVERY boundary."""
+        self._save_state()
 
     # ── Candidate generation ─────────────────────────────────────────────────
 
@@ -292,7 +307,7 @@ class FreeModelsRouter:
                     self.state.free_requests_used += 1
                 else:
                     self.state.paid_requests_used += 1
-                self._save_state()
+                self._maybe_save_state()
                 return ChatResult(
                     content=content,
                     model=choice.model,
