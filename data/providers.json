@@ -26,25 +26,25 @@
     "notes": "Primary provider. 50 req/day free tier. $10 unlocks 1000/day.",
     "public_mirror_safe": true
   },
-  "cerebras": {
-    "name": "Cerebras",
-    "base_url": "https://api.cerebras.ai/v1",
+  "google_ai": {
+    "name": "Google AI (Gemini)",
+    "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
     "auth": "bearer",
-    "env_key": "CEREBRAS_API_KEY",
+    "env_key": "GOOGLE_AI_API_KEY",
     "country": "US",
     "region": "us-east-1",
     "free_models": [
-      "llama3.1-8b",
-      "llama3.1-70b"
+      "gemini-1.5-flash",
+      "gemini-1.5-pro"
     ],
     "tier": "free_with_limits",
     "rate_limit": {
-      "rpm": 30,
-      "tpm": 100000
+      "rpm": 15,
+      "tpm": 1000000
     },
     "openai_compat": true,
     "priority": 2,
-    "notes": "Fallback provider. Free tier with generous limits. Fast inference.",
+    "notes": "Fallback provider. Free tier: 1500 req/day for flash, 50 req/day for pro. Generous limits.",
     "public_mirror_safe": true
   }
 }

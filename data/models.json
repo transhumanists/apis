@@ -82,10 +82,10 @@
     "last_verified": "2026-09-22",
     "public_mirror_safe": true
   },
-  "cerebras:llama3.1-8b": {
-    "provider": "cerebras",
+  "google_ai:gemini-1.5-flash": {
+    "provider": "google_ai",
     "country": "US",
-    "context_window": 8192,
+    "context_window": 1048576,
     "modalities": {
       "input": [
         "text"
@@ -102,15 +102,15 @@
       "code",
       "chat"
     ],
-    "license": "Llama-3.1-Community",
-    "added_on": "2024-08-06",
+    "license": "Google-Gemini",
+    "added_on": "2024-05-14",
     "last_verified": "2026-09-22",
     "public_mirror_safe": true
   },
-  "cerebras:llama3.1-70b": {
-    "provider": "cerebras",
+  "google_ai:gemini-1.5-pro": {
+    "provider": "google_ai",
     "country": "US",
-    "context_window": 8192,
+    "context_window": 2097152,
     "modalities": {
       "input": [
         "text"
@@ -127,8 +127,8 @@
       "code",
       "chat"
     ],
-    "license": "Llama-3.1-Community",
-    "added_on": "2024-08-06",
+    "license": "Google-Gemini",
+    "added_on": "2024-02-15",
     "last_verified": "2026-09-22",
     "public_mirror_safe": true
   }
