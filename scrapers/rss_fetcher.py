@@ -328,13 +328,13 @@ def main() -> None:
         "articles": unique,
     }
 
-    OUT_FILE.write_text(json.dumps(output, indent=2, ensure_ascii=False))
+    OUT_FILE.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
     log.info("Done. %d unique from %d feeds in %.1fs. Dead: %d",
              len(unique), len(FEEDS), elapsed, len(dead_feeds))
 
     if dead_feeds:
         dead_path = pathlib.Path(__file__).parent.parent / "data" / "dead_feeds.json"
-        dead_path.write_text(json.dumps(dead_feeds, indent=2))
+        dead_path.write_text(json.dumps(dead_feeds, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":

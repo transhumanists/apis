@@ -154,7 +154,7 @@ def generate_activity() -> dict:
 
     if ms_path.exists():
         try:
-            ms = json.loads(ms_path.read_text())
+            ms = json.loads(ms_path.read_text(encoding="utf-8"))
             counts: dict[str, int] = {}
             for cat_data in ms.get("categories", {}).values():
                 for m in cat_data.get("milestones", []):

@@ -134,7 +134,7 @@ def find_replacement(category: str, dead_url: str) -> str | None:
 def main():
     dead: list[dict] = []
     if DEAD_FEEDS.exists():
-        dead = json.loads(DEAD_FEEDS.read_text())
+        dead = json.loads(DEAD_FEEDS.read_text(encoding="utf-8"))
         log.info("Loaded %d dead feeds from previous run", len(dead))
 
     try:
@@ -187,7 +187,7 @@ def main():
         "checked": len(urls_to_check),
         "results": results,
         "replaced": replaced,
-    }, indent=2, ensure_ascii=False))
+    }, indent=2, ensure_ascii=False), encoding="utf-8")
     log.info("Health check done. %d results, %d replacements suggested.",
              len(results), len(replaced))
 
