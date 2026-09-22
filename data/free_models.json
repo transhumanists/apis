@@ -8,14 +8,18 @@
     "US": [
       "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
       "openrouter:qwen/qwen3.8-27b:free",
-      "openrouter:google/gemma-4-31b-it:free"
+      "openrouter:google/gemma-4-31b-it:free",
+      "together:meta-llama/Llama-3.2-3B-Instruct",
+      "together:Qwen/Qwen2.5-7B-Instruct-Turbo",
+      "together:mistralai/Mistral-7B-Instruct-v0.3"
     ],
     "LOCAL": []
   },
   "by_provider_count": {
-    "openrouter": 3
+    "openrouter": 3,
+    "together": 3
   },
-  "total_models": 3,
+  "total_models": 6,
   "total_countries": 1,
   "public_mirror_safe": true
 }

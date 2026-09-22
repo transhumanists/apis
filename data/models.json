@@ -81,5 +81,84 @@
     "added_on": "2026-04-02",
     "last_verified": "2026-09-22",
     "public_mirror_safe": true
+  },
+  "together:meta-llama/Llama-3.2-3B-Instruct": {
+    "provider": "together",
+    "country": "US",
+    "context_window": 131072,
+    "modalities": {
+      "input": [
+        "text"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "tier": "free",
+    "free_until": "ongoing",
+    "suitable_for": [
+      "classify",
+      "chat",
+      "extract"
+    ],
+    "license": "Llama-3.2-Community",
+    "added_on": "2024-09-25",
+    "last_verified": "2026-09-22",
+    "public_mirror_safe": true
+  },
+  "together:Qwen/Qwen2.5-7B-Instruct-Turbo": {
+    "provider": "together",
+    "country": "US",
+    "context_window": 131072,
+    "modalities": {
+      "input": [
+        "text"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "tier": "free",
+    "free_until": "ongoing",
+    "suitable_for": [
+      "classify",
+      "reasoning",
+      "code",
+      "chat"
+    ],
+    "benchmarks": {
+      "mmlu": 75.0,
+      "humaneval": 75.0,
+      "gsm8k": 80.0
+    },
+    "license": "Apache-2.0",
+    "added_on": "2024-09-19",
+    "last_verified": "2026-09-22",
+    "public_mirror_safe": true
+  },
+  "together:mistralai/Mistral-7B-Instruct-v0.3": {
+    "provider": "together",
+    "country": "US",
+    "context_window": 131072,
+    "modalities": {
+      "input": [
+        "text"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "tier": "free",
+    "free_until": "ongoing",
+    "suitable_for": [
+      "classify",
+      "reasoning",
+      "code",
+      "chat"
+    ],
+    "license": "Apache-2.0",
+    "added_on": "2024-10-01",
+    "last_verified": "2026-09-22",
+    "public_mirror_safe": true
   }
 }
