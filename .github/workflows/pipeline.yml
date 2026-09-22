@@ -4,8 +4,15 @@ on:
   schedule:
     # One run per day: the router's free tier is OpenRouter's 50-free-
     # requests/day allowance (account below the $10 funding threshold).
+    # With 25 articles + retries, stays under 50 req/day free tier.
     - cron: '0 6 * * *'
   workflow_dispatch:
+    inputs:
+      max_articles:
+        description: 'Max articles to score (default 25, max 45 to fit OpenRouter free tier)'
+        required: false
+        default: '25'
+        type: string
   repository_dispatch:
     types: [run-scrape]
 
@@ -108,6 +115,8 @@ jobs:
         # llm-action above only bundles its own upstream data into runner.temp
         # and exports the provider API keys. Router candidates are gated on
         # which of those keys are actually present.
+        env:
+          MAX_ARTICLES_TO_SCORE: ${{ github.event.inputs.max_articles || '25' }}
         run: python llm/score_milestone.py
 
       - name: Guard against publishing an empty dataset
