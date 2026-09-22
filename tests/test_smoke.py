@@ -456,6 +456,58 @@ class TestLlmScorer(unittest.TestCase):
         self.assertEqual(out["Spaceflight"]["name"], "Spaceflight & Aeronautics")
         self.assertEqual(out["Defense"]["name"], "Military & Defense")
 
+    def test_event_value_uses_title_when_no_metric(self):
+        """Metric-less milestones publish their title, never a summary string."""
+        self.assertEqual(llm_scorer.event_value(
+            {"value": None, "summary": "A summary.", "title": "A title"}
+        ), "A title")
+        self.assertEqual(
+            llm_scorer.event_value({"value": None, "title": "Alkermes orexin ADHD"}),
+            "Alkermes orexin ADHD",
+        )
+        self.assertEqual(llm_scorer.event_value({"title": "Only title"}), "Only title")
+        self.assertEqual(llm_scorer.event_value({}), "")
+        self.assertEqual(llm_scorer.event_value({"value": 100, "unit": "MW", "title": "NIF"}), "100 MW")
+
+    def test_main_reads_and_writes_utf8_content(self):
+        """Regression: Windows cp1252 default encoding crashed pipeline I/O.
+
+        Pipeline JSON carries non-ASCII (emoji) content; main() must read and
+        write its files as UTF-8 regardless of the platform default encoding.
+        """
+        import tempfile
+        tmp = pathlib.Path(tempfile.mkdtemp())
+        articles = {"last_update": "2026-09-22T00:00:00Z", "articles": [
+            {"id": "a1", "title": "Fusion reactor milestone 🔥", "summary": "Breakthrough ⚡",
+             "source": "Test Feed", "published": "2026-09-22",
+             "url": "https://example.com/a1", "weight": 10},
+        ]}
+        in_file = tmp / "articles.json"
+        existing = tmp / "milestones_existing.json"
+        out_ms = tmp / "milestones.json"
+        out_ev = tmp / "events.json"
+        out_md = tmp / "Milestones.md"
+        in_file.write_text(json.dumps(articles, ensure_ascii=False), encoding="utf-8")
+        existing.write_text(json.dumps({"categories": {}}), encoding="utf-8")
+        orig = (llm_scorer.IN_FILE, llm_scorer.EXISTING, llm_scorer.OUT_MILESTONES,
+                llm_scorer.OUT_EVENTS, llm_scorer.OUT_MD)
+        try:
+            llm_scorer.IN_FILE = in_file
+            llm_scorer.EXISTING = existing
+            llm_scorer.OUT_MILESTONES = out_ms
+            llm_scorer.OUT_EVENTS = out_ev
+            llm_scorer.OUT_MD = out_md
+            with patch.object(llm_scorer, "call_llm", return_value=None), \
+                    patch.object(llm_scorer, "_get_router", return_value=None):
+                llm_scorer.main()
+            data = json.loads(out_ms.read_text(encoding="utf-8"))
+            self.assertIn("categories", data)
+            self.assertEqual(json.loads(out_ev.read_text(encoding="utf-8"))["events"], [])
+            self.assertIn("Human Progress Milestones", out_md.read_text(encoding="utf-8"))
+        finally:
+            (llm_scorer.IN_FILE, llm_scorer.EXISTING, llm_scorer.OUT_MILESTONES,
+             llm_scorer.OUT_EVENTS, llm_scorer.OUT_MD) = orig
+
 
 class TestSourceChecker(unittest.TestCase):
     def test_replacements_defined_for_all_categories(self):
@@ -657,7 +709,7 @@ class TestJsonSchemas(unittest.TestCase):
     def test_existing_milestones_json_valid(self):
         path = ROOT / "data" / "milestones.json"
         if path.exists():
-            data = json.loads(path.read_text())
+            data = json.loads(path.read_text(encoding="utf-8"))
             self.assertIn("categories", data)
             for _cat_name, cat in data["categories"].items():
                 self.assertIn("icon", cat)
@@ -668,7 +720,7 @@ class TestJsonSchemas(unittest.TestCase):
     def test_existing_events_json_valid(self):
         path = ROOT / "data" / "events.json"
         if path.exists():
-            data = json.loads(path.read_text())
+            data = json.loads(path.read_text(encoding="utf-8"))
             self.assertIn("events", data)
             for ev in data["events"]:
                 self.assertIn("title", ev)
@@ -679,7 +731,7 @@ class TestJsonSchemas(unittest.TestCase):
     def test_existing_activity_json_valid(self):
         path = ROOT / "data" / "activity.json"
         if path.exists():
-            data = json.loads(path.read_text())
+            data = json.loads(path.read_text(encoding="utf-8"))
             self.assertIn("days", data)
             self.assertEqual(len(data["days"]), 30)
 

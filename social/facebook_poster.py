@@ -107,7 +107,7 @@ def should_post() -> bool:
     if not POST_HISTORY.exists():
         return True
     try:
-        hist = json.loads(POST_HISTORY.read_text())
+        hist = json.loads(POST_HISTORY.read_text(encoding="utf-8"))
         last = hist.get("last_post_date", "")
         if last == _utc_date():
             log.info("Already posted today (%s) — skipping.", last)
@@ -121,11 +121,11 @@ def record_post(post_id: str) -> None:
     hist = {}
     if POST_HISTORY.exists():
         with suppress(Exception):
-            hist = json.loads(POST_HISTORY.read_text())
+            hist = json.loads(POST_HISTORY.read_text(encoding="utf-8"))
     hist["last_post_date"] = _utc_date()
     hist["last_post_id"] = post_id
     tmp = POST_HISTORY.with_suffix(".tmp")
-    tmp.write_text(json.dumps(hist, indent=2))
+    tmp.write_text(json.dumps(hist, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(POST_HISTORY)
 
 
@@ -145,7 +145,7 @@ def main():
         raise SystemExit(1)
 
     try:
-        milestones = json.loads(MILESTONES_JSON.read_text())
+        milestones = json.loads(MILESTONES_JSON.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
         log.error("Corrupt milestones.json: %s", e)
         raise SystemExit(1) from e

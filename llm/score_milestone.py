@@ -680,13 +680,12 @@ def generate_milestones_md(categories: dict[str, Any], existing_by_subcat: dict[
 def event_value(m: dict[str, Any]) -> str:
     """Value string for an event/map pin.
 
-    Milestones without a numeric metric carry the milestone info string (their
-    summary, falling back to the title) instead of an empty value or a
-    misleading "0".
+    Milestones without a numeric metric publish their title (never a summary
+    string presented as if it were a metric value).
     """
     if m.get("value") is not None:
         return f"{m.get('value')} {m.get('unit') or ''}".strip()
-    return m.get("summary") or m.get("title") or ""
+    return m.get("title") or ""
 
 
 def merge_with_existing(existing_by_subcat: dict[str, list[dict[str, Any]]],
@@ -736,7 +735,7 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        raw = json.loads(IN_FILE.read_text())
+        raw = json.loads(IN_FILE.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
         log.error("Corrupt articles.json: %s", e)
         sys.exit(1)
@@ -747,7 +746,7 @@ def main() -> None:
     existing_by_subcat: dict[str, list[dict[str, Any]]] = {}
     if EXISTING.exists():
         try:
-            existing = json.loads(EXISTING.read_text())
+            existing = json.loads(EXISTING.read_text(encoding="utf-8"))
             if isinstance(existing, dict):
                 # Flatten + normalise display-name categories back to LLM-side
                 # keys (see CATEGORY_DISPLAY_TO_KEY) so the append-only merge
@@ -836,16 +835,16 @@ def main() -> None:
     }
 
     OUT_MILESTONES.parent.mkdir(parents=True, exist_ok=True)
-    OUT_MILESTONES.write_text(json.dumps(output, indent=2, ensure_ascii=False))
-    OUT_EVENTS.write_text(json.dumps(events_out, indent=2, ensure_ascii=False))
+    OUT_MILESTONES.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
+    OUT_EVENTS.write_text(json.dumps(events_out, indent=2, ensure_ascii=False), encoding="utf-8")
 
     md_content = generate_milestones_md(output_categories, existing_by_subcat)
-    OUT_MD.write_text(md_content)
+    OUT_MD.write_text(md_content, encoding="utf-8")
 
     # Persist the merged dataset so a later local/dry run retains it even if
     # the upstream fetch of milestones_existing.json is unavailable.
     try:
-        EXISTING.write_text(json.dumps(output, indent=2, ensure_ascii=False))
+        EXISTING.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
     except OSError as e:
         log.warning("Could not persist existing-milestones snapshot: %s", e)
 
