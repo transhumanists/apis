@@ -82,8 +82,8 @@
     "last_verified": "2026-09-22",
     "public_mirror_safe": true
   },
-  "groq:llama3-8b-8192": {
-    "provider": "groq",
+  "cerebras:llama3.1-8b": {
+    "provider": "cerebras",
     "country": "US",
     "context_window": 8192,
     "modalities": {
@@ -102,15 +102,15 @@
       "code",
       "chat"
     ],
-    "license": "Llama-3-Community",
-    "added_on": "2024-04-18",
+    "license": "Llama-3.1-Community",
+    "added_on": "2024-08-06",
     "last_verified": "2026-09-22",
     "public_mirror_safe": true
   },
-  "groq:mixtral-8x7b-32768": {
-    "provider": "groq",
+  "cerebras:llama3.1-70b": {
+    "provider": "cerebras",
     "country": "US",
-    "context_window": 32768,
+    "context_window": 8192,
     "modalities": {
       "input": [
         "text"
@@ -127,32 +127,8 @@
       "code",
       "chat"
     ],
-    "license": "Apache-2.0",
-    "added_on": "2024-02-26",
-    "last_verified": "2026-09-22",
-    "public_mirror_safe": true
-  },
-  "groq:gemma-7b-it": {
-    "provider": "groq",
-    "country": "US",
-    "context_window": 8192,
-    "modalities": {
-      "input": [
-        "text"
-      ],
-      "output": [
-        "text"
-      ]
-    },
-    "tier": "free",
-    "free_until": "ongoing",
-    "suitable_for": [
-      "classify",
-      "reasoning",
-      "chat"
-    ],
-    "license": "Gemma",
-    "added_on": "2024-02-21",
+    "license": "Llama-3.1-Community",
+    "added_on": "2024-08-06",
     "last_verified": "2026-09-22",
     "public_mirror_safe": true
   }

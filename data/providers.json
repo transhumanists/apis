@@ -26,26 +26,25 @@
     "notes": "Primary provider. 50 req/day free tier. $10 unlocks 1000/day.",
     "public_mirror_safe": true
   },
-  "groq": {
-    "name": "Groq",
-    "base_url": "https://api.groq.com/openai/v1",
+  "cerebras": {
+    "name": "Cerebras",
+    "base_url": "https://api.cerebras.ai/v1",
     "auth": "bearer",
-    "env_key": "GROQ_API_KEY",
+    "env_key": "CEREBRAS_API_KEY",
     "country": "US",
     "region": "us-east-1",
     "free_models": [
-      "llama3-8b-8192",
-      "mixtral-8x7b-32768",
-      "gemma-7b-it"
+      "llama3.1-8b",
+      "llama3.1-70b"
     ],
     "tier": "free_with_limits",
     "rate_limit": {
       "rpm": 30,
-      "tpm": 6000
+      "tpm": 100000
     },
     "openai_compat": true,
     "priority": 2,
-    "notes": "Fallback provider. Free tier: 30 RPM, 6000 TPM. No credit card required.",
+    "notes": "Fallback provider. Free tier with generous limits. Fast inference.",
     "public_mirror_safe": true
   }
 }

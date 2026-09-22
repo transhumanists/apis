@@ -9,15 +9,14 @@
       "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
       "openrouter:qwen/qwen3.8-27b:free",
       "openrouter:google/gemma-4-31b-it:free",
-      "groq:llama3-8b-8192",
-      "groq:mixtral-8x7b-32768",
-      "groq:gemma-7b-it"
+      "cerebras:llama3.1-8b",
+      "cerebras:llama3.1-70b"
     ],
     "LOCAL": []
   },
   "by_provider_count": {
     "openrouter": 3,
-    "groq": 3
+    "cerebras": 2
   },
   "total_models": 6,
   "total_countries": 1,
