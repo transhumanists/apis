@@ -217,14 +217,19 @@ class FreeModelsRouter:
 
         task_match = self._task_match(model_data.get("suitable_for", []), task)
 
+        # Provider priority: lower number = higher priority (1=highest)
+        provider_priority = provider.get("priority", 99)
+        priority_score = max(0.1, 1.0 - (provider_priority - 1) * 0.01)
+
         overall = (
-            task_match * 0.4
-            + health_score * 0.3
-            + error_score * 0.2
-            + country_score * 0.1
+            task_match * 0.35
+            + health_score * 0.25
+            + error_score * 0.15
+            + country_score * 0.10
+            + priority_score * 0.15
         )
 
-        reason = f"task={task_match:.2f} health={health_score:.2f} errors={errors} country={country_score:.2f}"
+        reason = f"task={task_match:.2f} health={health_score:.2f} errors={errors} country={country_score:.2f} priority={provider_priority}"
 
         return ModelChoice(
             model=model_key,

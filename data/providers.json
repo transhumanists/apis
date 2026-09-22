@@ -25,6 +25,7 @@
       "rpd": 14400
     },
     "openai_compat": true,
+    "priority": 10,
     "user_agent": "Mozilla/5.0 (compatible; TranshumanistsPipeline/1.0; +https://github.com/transhumanists/apis)",
     "notes": "Fastest inference. 14,400 requests/day free. Llama 3.3 70B is exceptional.",
     "public_mirror_safe": true
@@ -46,6 +47,7 @@
       "tpm": 2000
     },
     "openai_compat": true,
+    "priority": 20,
     "user_agent": "Mozilla/5.0 (compatible; TranshumanistsPipeline/1.0; +https://github.com/transhumanists/apis)",
     "notes": "Cerebras Gaudi 3 chips. Fast inference on large models. qwen-2.5-72b is top-tier quality.",
     "public_mirror_safe": true
@@ -69,6 +71,7 @@
       "tpm": 1000
     },
     "openai_compat": true,
+    "priority": 30,
     "notes": "200 tokens/day free on Quick Start tier. Good quality on Llama 3.1 70B.",
     "public_mirror_safe": true
   },
@@ -94,6 +97,7 @@
       "rpd": 10000
     },
     "openai_compat": false,
+    "priority": 40,
     "user_agent": "Mozilla/5.0 (compatible; TranshumanistsPipeline/1.0; +https://github.com/transhumanists/apis)",
     "notes": "Runs on Cloudflare's global edge. 10K req/day free. Low latency from CF edge nodes.",
     "public_mirror_safe": true
@@ -117,6 +121,7 @@
       "tpm": 5000
     },
     "openai_compat": true,
+    "priority": 50,
     "notes": "Free tier: 5M tokens/month. NIM bundles are optimized for NVIDIA hardware.",
     "public_mirror_safe": true
   },
@@ -139,6 +144,7 @@
       "tpm": 50000
     },
     "openai_compat": true,
+    "priority": 60,
     "notes": "Command-R is excellent for RAG and multi-step reasoning. 50K tokens/month free.",
     "public_mirror_safe": true
   },
@@ -162,6 +168,7 @@
       "tpm": 500000
     },
     "openai_compat": true,
+    "priority": 70,
     "notes": "$5 free credit. 500K tokens/month free on some models. Good vision support.",
     "public_mirror_safe": true
   },
@@ -185,6 +192,7 @@
       "tpd": 1500
     },
     "openai_compat": false,
+    "priority": 80,
     "notes": "Gemini 2.0 Flash is cutting-edge fast. 1.5M tokens/month free.",
     "public_mirror_safe": true
   },
@@ -214,6 +222,7 @@
       "unlimited": true
     },
     "openai_compat": true,
+    "priority": 5,
     "notes": "Runs locally. Zero cost, zero rate limits. Pull with: ollama pull <model>",
     "public_mirror_safe": true
   },
@@ -234,6 +243,7 @@
       "varies": "per model, check openrouter.ai/models"
     },
     "openai_compat": true,
+    "priority": 1,
     "notes": "Aggregates many providers. :free tag gives credits. $5 free on signup.",
     "public_mirror_safe": true
   },
@@ -259,6 +269,7 @@
       "tpm": 10000
     },
     "openai_compat": true,
+    "priority": 90,
     "notes": "Serverless inference endpoints. 10K tokens/month free. Free tier saturates quickly.",
     "public_mirror_safe": true
   }
