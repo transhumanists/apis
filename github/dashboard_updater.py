@@ -11,7 +11,6 @@ import json
 import logging
 import os
 import pathlib
-import random
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -133,7 +132,11 @@ def upsert_file(owner: str, repo: str, path: str, content: bytes, message: str) 
 
 # ---- Activity generation ----
 def generate_activity() -> dict:
-    """Generate 30-day activity from recent milestones.json."""
+    """Generate a 30-day activity series from the current milestones.json.
+
+    Falls back to an all-zero series (plus no spikes) when there is no parsed
+    milestone data - never fabricates a random-looking chart.
+    """
     ms_path = pathlib.Path(__file__).parent.parent / "data" / "milestones.json"
     days = []
     today = datetime.now(timezone.utc)
@@ -161,12 +164,10 @@ def generate_activity() -> dict:
             log.warning("Could not parse milestones for activity: %s", e)
 
     if not days:
-        random.seed(int(today.timestamp()) // 86400)
+        log.warning("No milestone dates found - emitting a zero activity series instead of fake data")
         for i in range(29, -1, -1):
             d = today - timedelta(days=i)
-            dow = d.weekday()
-            base = [3, 5, 8, 12, 14, 9, 6][dow]
-            days.append({"date": d.strftime("%Y-%m-%d"), "count": base + random.randint(0, 5)})
+            days.append({"date": d.strftime("%Y-%m-%d"), "count": 0})
 
     return {
         "last_update": _utc_now(),

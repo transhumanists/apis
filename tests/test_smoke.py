@@ -302,6 +302,69 @@ class TestLlmScorer(unittest.TestCase):
         self.assertIn("First robotic surgery", md)
         self.assertIn("Auto-generated", md)
 
+    def test_merge_with_existing_retains_records_when_no_new_scored(self):
+        """A run that scores nothing must NOT collapse the published dataset."""
+        existing = {
+            "Biotechnology/biosensors": [
+                {"id": "ms-aaa", "category": "Biotechnology", "subcategory": "biosensors",
+                 "title": "Nanopore sensor", "value": 98.7, "date": "2026-09-15", "is_new": True},
+            ],
+            "Quantum Physics/qubit_count": [
+                {"id": "ms-bbb", "category": "Quantum Physics", "subcategory": "qubit_count",
+                 "title": "IBM 4,158 qubits", "value": 4158, "date": "2026-08-22"},
+            ],
+        }
+        merged = llm_scorer.merge_with_existing(existing, {})
+        self.assertEqual(len(merged), 2)
+        total = sum(len(v) for v in merged.values())
+        self.assertEqual(total, 2)
+        # Retained records lose their "is_new" marker.
+        for records in merged.values():
+            for m in records:
+                self.assertFalse(m.get("is_new"))
+
+    def test_merge_with_existing_keeps_previous_on_partial_scoring(self):
+        """Old collapse bug: only freshly scored subs survived (37 -> 4 -> 3)."""
+        existing = {
+            cat + "/" + sub: [
+                {"id": f"ms-{i}", "category": cat, "subcategory": sub,
+                 "title": f"{cat} {sub} milestone", "value": 100, "date": "2026-09-01"}
+            ]
+            for i, (cat, sub) in enumerate(
+                [("Biotechnology", "biosensors"), ("Energy", "fusion"), ("Spaceflight", "launch")]
+            )
+        }
+        # Only one new milestone arrives today, in a sub that already exists.
+        scored = {
+            "Biotechnology/biosensors": {
+                "id": "ms-new1", "category": "Biotechnology", "subcategory": "biosensors",
+                "title": "Newer nanopore", "value": 99.0, "date": "2026-09-22", "is_new": True,
+            }
+        }
+        merged = llm_scorer.merge_with_existing(existing, scored)
+        self.assertEqual(len(merged), 3)          # all three subs survive
+        self.assertEqual(sum(len(v) for v in merged.values()), 4)  # 3 old + 1 new
+
+    def test_merge_with_existing_replaces_same_id(self):
+        """Same-id update supersedes in place (no duplicate ids)."""
+        existing = {
+            "Biotechnology/biosensors": [
+                {"id": "ms-dup", "category": "Biotechnology", "subcategory": "biosensors",
+                 "title": "Old title", "value": 90.0, "date": "2026-09-01"},
+            ]
+        }
+        scored = {
+            "Biotechnology/biosensors": {
+                "id": "ms-dup", "category": "Biotechnology", "subcategory": "biosensors",
+                "title": "New title", "value": 99.0, "date": "2026-09-22", "is_record": True,
+            }
+        }
+        merged = llm_scorer.merge_with_existing(existing, scored)
+        records = merged["Biotechnology/biosensors"]
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["title"], "New title")
+        self.assertTrue(records[0]["is_new"])
+
 
 class TestSourceChecker(unittest.TestCase):
     def test_replacements_defined_for_all_categories(self):

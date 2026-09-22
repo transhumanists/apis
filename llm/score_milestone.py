@@ -436,6 +436,14 @@ def normalize_value(value: Any, unit: str | None) -> float:
     return v
 
 
+def _stable_id(m: dict[str, Any]) -> str:
+    """Reproducible id for a milestone record that lacks one (defensive)."""
+    return "ms-" + sha1(
+        f"{m.get('category', 'Unknown')}{m.get('subcategory', 'general')}"
+        f"{m.get('title', '')}{m.get('date', '')}".encode()
+    ).hexdigest()[:12]
+
+
 def rank_milestone(milestone: dict[str, Any]) -> float:
     score = 0.0
     if milestone.get("is_record"):
@@ -591,6 +599,47 @@ def generate_milestones_md(categories: dict[str, Any], existing_by_subcat: dict[
     return "\n".join(lines) + "\n"
 
 
+def merge_with_existing(existing_by_subcat: dict[str, list[dict[str, Any]]],
+                        by_subcat: dict[str, dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Merge freshly scored milestones with everything previously published.
+
+    The published database is APPEND-ONLY: records are never dropped, only
+    superseded id-for-id by a strictly-fresher/better record of the same
+    metric. A run that scores a handful of articles must never collapse the
+    dataset (regression seen 2026-09-22: 37 -> 4 -> 3 milestones).
+
+    Returns a dict of "Category/subcategory" -> list of milestone records.
+    """
+    merged: dict[str, list[dict[str, Any]]] = {}
+    seen_ids: set[str] = set()
+    for key, records in existing_by_subcat.items():
+        for m in records:
+            mid = m.get("id") or _stable_id(m)
+            if mid in seen_ids:
+                continue
+            seen_ids.add(mid)
+            rec = dict(m)
+            rec["is_new"] = False
+            merged.setdefault(f"{rec.get('category', 'Unknown')}/{rec.get('subcategory', 'general')}", []).append(rec)
+    for key, m in by_subcat.items():
+        prev = existing_by_subcat.get(key, [])
+        best_prev = max((rank_milestone(p) for p in prev), default=0.0)
+        fresh = dict(m)
+        fresh["is_new"] = rank_milestone(fresh) >= best_prev
+        mid = fresh.get("id") or _stable_id(fresh)
+        bucket = merged.setdefault(key, [])
+        replaced = False
+        for i, rec in enumerate(bucket):
+            if (rec.get("id") or _stable_id(rec)) == mid:
+                bucket[i] = fresh
+                replaced = True
+                break
+        if not replaced:
+            seen_ids.add(mid)
+            bucket.append(fresh)
+    return merged
+
+
 def main() -> None:
     if not IN_FILE.exists():
         log.error("Missing input file: %s", IN_FILE)
@@ -605,13 +654,22 @@ def main() -> None:
     articles = raw.get("articles", []) if isinstance(raw, dict) else raw
     log.info("Loaded %d articles", len(articles))
 
-    existing_by_subcat: dict[str, Any] = {}
+    existing_by_subcat: dict[str, list[dict[str, Any]]] = {}
     if EXISTING.exists():
         try:
             existing = json.loads(EXISTING.read_text())
             for cat_name, cat_data in existing.get("categories", {}).items():
-                for sub_list in cat_data.get("subcategories", []):
-                    existing_by_subcat[f"{cat_name}/{sub_list}"] = cat_data.get("milestones", [])
+                if not isinstance(cat_data, dict):
+                    continue
+                # Canonical files may key categories by snake_case with a
+                # "name" display field, or directly by display name. Normalise
+                # to the display name so it matches freshly scored records.
+                display = cat_data.get("name") or cat_name
+                for m in cat_data.get("milestones", []) or []:
+                    if not isinstance(m, dict):
+                        continue
+                    sub = m.get("subcategory") or "general"
+                    existing_by_subcat.setdefault(f"{display}/{sub}", []).append(m)
         except (OSError, ValueError, json.JSONDecodeError) as e:
             log.warning("Could not load existing milestones: %s", e)
 
@@ -639,30 +697,39 @@ def main() -> None:
 
     output_categories = build_categories_output()
     events: list[dict[str, Any]] = []
+    seen_events: set[str] = set()
 
-    for cat_name, cat_data in output_categories.items():
-        for sub in cat_data.get("subcategories", []):
-            key = f"{cat_name}/{sub}"
-            if key in by_subcat:
-                m = by_subcat[key]
-                prev = existing_by_subcat.get(key, [])
-                if prev:
-                    best_prev = max((rank_milestone(p) for p in prev), default=0)
-                    m["is_new"] = rank_milestone(m) >= best_prev
-                else:
-                    m["is_new"] = True
-                output_categories[cat_name]["milestones"].append(m)
-                if m.get("geolocation", {}).get("lat"):
-                    events.append({
-                        "id": "ev-" + m["id"],
-                        "title": m["title"],
-                        "category": m["category"],
-                        "value": f"{m.get('value', '')} {m.get('unit', '') or ''}".strip(),
-                        "source": m["source"],
-                        "url": m.get("url"),
-                        "date": m["date"],
-                        "geolocation": m["geolocation"],
-                    })
+    # ---- Retention merge ------------------------------------------------
+    # The published database is APPEND-ONLY (see merge_with_existing).
+    merged = merge_with_existing(existing_by_subcat, by_subcat)
+
+    # ---- Distribute merged records into their categories ----------------
+    for key, records in merged.items():
+        display, sub = key.split("/", 1)
+        cat_data = output_categories.get(display)
+        if cat_data is None:
+            log.warning("Retained milestone(s) for unknown category %r — skipped", display)
+            continue
+        if sub not in cat_data["subcategories"]:
+            cat_data["subcategories"].append(sub)
+        for m in records:
+            cat_data["milestones"].append(m)
+            geo = m.get("geolocation") or {}
+            if geo.get("lat") and geo.get("lon"):
+                ev_id = "ev-" + (m.get("id") or _stable_id(m))
+                if ev_id in seen_events:
+                    continue
+                seen_events.add(ev_id)
+                events.append({
+                    "id": ev_id,
+                    "title": m["title"],
+                    "category": m["category"],
+                    "value": f"{m.get('value', '')} {m.get('unit', '') or ''}".strip(),
+                    "source": m["source"],
+                    "url": m.get("url"),
+                    "date": m["date"],
+                    "geolocation": geo,
+                })
 
     for cat_name in output_categories:
         output_categories[cat_name]["milestones"].sort(key=lambda m: -rank_milestone(m))
@@ -685,6 +752,13 @@ def main() -> None:
 
     md_content = generate_milestones_md(output_categories, existing_by_subcat)
     OUT_MD.write_text(md_content)
+
+    # Persist the merged dataset so a later local/dry run retains it even if
+    # the upstream fetch of milestones_existing.json is unavailable.
+    try:
+        EXISTING.write_text(json.dumps(output, indent=2, ensure_ascii=False))
+    except OSError as e:
+        log.warning("Could not persist existing-milestones snapshot: %s", e)
 
     log.info(
         "Wrote %d milestones across %d categories and %d events",
