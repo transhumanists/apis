@@ -26,26 +26,26 @@
     "notes": "Primary provider. 50 req/day free tier. $10 unlocks 1000/day.",
     "public_mirror_safe": true
   },
-  "together": {
-    "name": "Together AI",
-    "base_url": "https://api.together.xyz/v1",
+  "groq": {
+    "name": "Groq",
+    "base_url": "https://api.groq.com/openai/v1",
     "auth": "bearer",
-    "env_key": "TOGETHER_API_KEY",
+    "env_key": "GROQ_API_KEY",
     "country": "US",
     "region": "us-east-1",
     "free_models": [
-      "meta-llama/Llama-3.2-3B-Instruct",
-      "Qwen/Qwen2.5-7B-Instruct-Turbo",
-      "mistralai/Mistral-7B-Instruct-v0.3"
+      "llama-3.1-8b-instant",
+      "llama-3.3-70b-versatile",
+      "gemma2-9b-it"
     ],
     "tier": "free_with_limits",
     "rate_limit": {
-      "rpm": 5,
-      "tpm": 500000
+      "rpm": 30,
+      "tpm": 6000
     },
     "openai_compat": true,
     "priority": 2,
-    "notes": "Fallback provider. $5 free credit. 500K tokens/month free on some models.",
+    "notes": "Fallback provider. Free tier: 30 RPM, 6000 TPM. No credit card required.",
     "public_mirror_safe": true
   }
 }

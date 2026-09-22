@@ -101,7 +101,6 @@ jobs:
           huggingface-key: ${{ secrets.HUGGINGFACE_API_KEY }}
           nvidia-key: ${{ secrets.NVIDIA_API_KEY }}
           cohere-key: ${{ secrets.COHERE_API_KEY }}
-          together-key: ${{ secrets.TOGETHER_API_KEY }}
           data-dir: ${{ runner.temp }}/llm-router-data
           python-version: '3.12'
           cache-pip: false

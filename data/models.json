@@ -82,32 +82,8 @@
     "last_verified": "2026-09-22",
     "public_mirror_safe": true
   },
-  "together:meta-llama/Llama-3.2-3B-Instruct": {
-    "provider": "together",
-    "country": "US",
-    "context_window": 131072,
-    "modalities": {
-      "input": [
-        "text"
-      ],
-      "output": [
-        "text"
-      ]
-    },
-    "tier": "free",
-    "free_until": "ongoing",
-    "suitable_for": [
-      "classify",
-      "chat",
-      "extract"
-    ],
-    "license": "Llama-3.2-Community",
-    "added_on": "2024-09-25",
-    "last_verified": "2026-09-22",
-    "public_mirror_safe": true
-  },
-  "together:Qwen/Qwen2.5-7B-Instruct-Turbo": {
-    "provider": "together",
+  "groq:llama-3.1-8b-instant": {
+    "provider": "groq",
     "country": "US",
     "context_window": 131072,
     "modalities": {
@@ -126,18 +102,13 @@
       "code",
       "chat"
     ],
-    "benchmarks": {
-      "mmlu": 75.0,
-      "humaneval": 75.0,
-      "gsm8k": 80.0
-    },
-    "license": "Apache-2.0",
-    "added_on": "2024-09-19",
+    "license": "Llama-3.1-Community",
+    "added_on": "2024-07-23",
     "last_verified": "2026-09-22",
     "public_mirror_safe": true
   },
-  "together:mistralai/Mistral-7B-Instruct-v0.3": {
-    "provider": "together",
+  "groq:llama-3.3-70b-versatile": {
+    "provider": "groq",
     "country": "US",
     "context_window": 131072,
     "modalities": {
@@ -156,8 +127,32 @@
       "code",
       "chat"
     ],
-    "license": "Apache-2.0",
-    "added_on": "2024-10-01",
+    "license": "Llama-3.3-Community",
+    "added_on": "2024-12-06",
+    "last_verified": "2026-09-22",
+    "public_mirror_safe": true
+  },
+  "groq:gemma2-9b-it": {
+    "provider": "groq",
+    "country": "US",
+    "context_window": 8192,
+    "modalities": {
+      "input": [
+        "text"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "tier": "free",
+    "free_until": "ongoing",
+    "suitable_for": [
+      "classify",
+      "reasoning",
+      "chat"
+    ],
+    "license": "Gemma-2",
+    "added_on": "2024-06-27",
     "last_verified": "2026-09-22",
     "public_mirror_safe": true
   }
