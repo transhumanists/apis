@@ -166,6 +166,28 @@ class TestLlmScorer(unittest.TestCase):
         b = {"is_record": False, "value": 100, "unit": "km"}
         self.assertGreater(llm_scorer.rank_milestone(a), llm_scorer.rank_milestone(b))
 
+    def test_router_data_dir_defaults_to_repo_data(self):
+        self.assertTrue(llm_scorer.ROUTER_DATA_DIR.is_absolute())
+        self.assertEqual(llm_scorer.ROUTER_DATA_DIR, ROOT / "data")
+
+    def test_router_data_dir_env_override(self):
+        import subprocess
+        code = (
+            "import pathlib, sys\n"
+            "sys.path.insert(0, r'%s')\n"
+            "import llm.score_milestone as s\n"
+            "print(s.ROUTER_DATA_DIR)\n" % (str(ROOT),)
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "ACTION_DATA_DIR": "/tmp/llm-router-data"},
+            cwd=str(ROOT),
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(), str(pathlib.Path("/tmp/llm-router-data")))
+
     def test_rank_milestone_recency(self):
         today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         old_str = "2020-01-01"
