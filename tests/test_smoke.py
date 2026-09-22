@@ -294,7 +294,7 @@ class TestLlmScorer(unittest.TestCase):
                                          "source": "MIT", "date": "2026-01-02",
                                          "subcategory": "remote_surgery", "is_new": False}]},
         }
-        md = llm_scorer.generate_milestones_md(cats, {})
+        md = llm_scorer.generate_milestones_md(cats)
         self.assertIn("1. Biotechnology", md)
         self.assertIn("2. Robotics", md)
         self.assertIn("remote_surgery", md)
