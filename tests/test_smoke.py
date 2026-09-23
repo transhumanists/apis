@@ -184,6 +184,15 @@ class TestRssFetcher(unittest.TestCase):
             windows = rss_fetcher._iter_backfill_windows()
         self.assertEqual(windows, [])
 
+    def test_arxiv_backfill_future_start_is_disabled_not_crash(self):
+        """A start date after "today" must disable backfill without crashing."""
+        now = datetime(2026, 9, 23, tzinfo=timezone.utc)
+        with patch.object(rss_fetcher, "ARXIV_HISTORY_START", "2030-01-01"), \
+             patch.object(rss_fetcher, "ARXIV_HISTORY_DAYS", 0), \
+             patch.object(rss_fetcher, "_utc_now", return_value=now):
+            windows = rss_fetcher._iter_backfill_windows()
+        self.assertEqual(windows, [])
+
     def test_arxiv_backfill_window_count_is_capped(self):
         """A far-past start must not generate unbounded month windows (job timeout)."""
         now = datetime(2026, 9, 23, tzinfo=timezone.utc)
@@ -322,6 +331,16 @@ class TestLlmScorer(unittest.TestCase):
         self.assertEqual(llm_scorer.normalize_value("-inf", ""), 0.0)
         self.assertEqual(llm_scorer.normalize_value("1e400", ""), 0.0)
         self.assertEqual(llm_scorer.normalize_value(0e400, "Wh/kg"), 0.0)
+
+    def test_normalize_value_strips_thousands_separators(self):
+        """LLM "10,000" style literals must rank normally, not deflate to 0.0."""
+        self.assertEqual(llm_scorer.normalize_value("10,000", "km"), 50.0)
+        self.assertEqual(llm_scorer.normalize_value("1,000,000", "qubit"), 20000.0)
+        self.assertEqual(llm_scorer.normalize_value("10,000", ""), 10000.0)
+        self.assertEqual(llm_scorer.normalize_value("10000", "km"), 50.0)
+        # European decimals and stray commas still fail closed (no mis-parse).
+        self.assertEqual(llm_scorer.normalize_value("0,5", "km"), 0.0)
+        self.assertEqual(llm_scorer.normalize_value("1,2,3", ""), 0.0)
 
     def test_rank_milestone_record(self):
         a = {"is_record": True, "value": 100, "unit": "km"}

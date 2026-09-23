@@ -352,6 +352,10 @@ def _iter_backfill_windows() -> list[tuple[str, str]]:
     windows: list[tuple[str, str]] = []
 
     start_date = _parsed_backfill_start()
+    if start_date is not None and start_date > today:
+        log.warning("ARXIV_HISTORY_START=%r is in the future — backfill disabled",
+                    ARXIV_HISTORY_START)
+        start_date = None
     if start_date is not None:
         end = today + timedelta(days=1)
         month_start = datetime(start_date.year, start_date.month, 1, tzinfo=timezone.utc)
