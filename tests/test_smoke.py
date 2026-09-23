@@ -175,6 +175,94 @@ class TestRssFetcher(unittest.TestCase):
         self.assertEqual(a["source"], "arXiv")
         self.assertTrue(a["arxiv_history"])
 
+    def test_arxiv_backfill_malformed_start_is_ignored_not_crash(self):
+        """A malformed ARXIV_HISTORY_START must disable backfill, never crash."""
+        now = datetime(2026, 9, 23, tzinfo=timezone.utc)
+        with patch.object(rss_fetcher, "ARXIV_HISTORY_START", "2026/06/01"), \
+             patch.object(rss_fetcher, "ARXIV_HISTORY_DAYS", 0), \
+             patch.object(rss_fetcher, "_utc_now", return_value=now):
+            windows = rss_fetcher._iter_backfill_windows()
+        self.assertEqual(windows, [])
+
+    def test_arxiv_backfill_window_count_is_capped(self):
+        """A far-past start must not generate unbounded month windows (job timeout)."""
+        now = datetime(2026, 9, 23, tzinfo=timezone.utc)
+        with patch.object(rss_fetcher, "ARXIV_HISTORY_START", "2010-01-01"), \
+             patch.object(rss_fetcher, "ARXIV_HISTORY_DAYS", 0), \
+             patch.object(rss_fetcher, "_utc_now", return_value=now):
+            windows = rss_fetcher._iter_backfill_windows()
+        self.assertEqual(len(windows), rss_fetcher.ARXIV_HISTORY_MAX_WINDOWS)
+        self.assertEqual(windows[0][0], "20100101000000")
+
+    def test_arxiv_backfill_retries_on_429_then_succeeds(self):
+        """A 429 (arXiv rate limit) retries with backoff instead of dropping the query."""
+        entry = MagicMock()
+        entry.id = "http://arxiv.org/abs/2609.10001v1"
+        entry.title = "X"
+        entry.summary = "s"
+        entry.published_parsed = time.strptime("2026-09-20", "%Y-%m-%d")
+        parsed = MagicMock()
+        parsed.entries = [entry]
+
+        rate = MagicMock()
+        rate.status_code = 429
+        rate.headers = {"Retry-After": "3"}
+        rate.raise_for_status = lambda: (_ for _ in ()).throw(rss_fetcher.requests.HTTPError())
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.content = b"<feed/>"
+        ok.raise_for_status = lambda: None
+
+        calls = {"n": 0}
+
+        def fake_get(*args, **kwargs):
+            calls["n"] += 1
+            return rate if calls["n"] == 1 else ok
+
+        now = datetime(2026, 9, 23, tzinfo=timezone.utc)
+        with patch.object(rss_fetcher, "ARXIV_HISTORY_START", "2026-09-01"), \
+             patch.object(rss_fetcher, "ARXIV_HISTORY_DAYS", 0), \
+             patch.object(rss_fetcher, "_utc_now", return_value=now), \
+             patch.object(rss_fetcher.time, "sleep", lambda *_: None), \
+             patch.object(rss_fetcher.requests, "get", side_effect=fake_get), \
+             patch.object(rss_fetcher.feedparser, "parse", return_value=parsed):
+            articles, errors = rss_fetcher.fetch_arxiv_history()
+        self.assertEqual(errors, [])
+        # one rate-limited attempt (no article) + one success per query category
+        self.assertEqual(len(articles), len(rss_fetcher.ARXIV_HISTORY_QUERIES))
+        self.assertEqual(calls["n"], len(rss_fetcher.ARXIV_HISTORY_QUERIES) + 1)
+
+    def test_arxiv_backfill_retries_on_timeout_then_records_error(self):
+        """Timeouts across all attempts record an error — backfill must not crash."""
+        now = datetime(2026, 9, 23, tzinfo=timezone.utc)
+        total_attempts = (rss_fetcher.FETCH_RETRIES + 1) * len(rss_fetcher.ARXIV_HISTORY_QUERIES)
+        with patch.object(rss_fetcher, "ARXIV_HISTORY_START", "2026-09-01"), \
+             patch.object(rss_fetcher, "ARXIV_HISTORY_DAYS", 0), \
+             patch.object(rss_fetcher, "_utc_now", return_value=now), \
+             patch.object(rss_fetcher.time, "sleep", lambda *_: None), \
+             patch.object(rss_fetcher.requests, "get",
+                          side_effect=[rss_fetcher.requests.Timeout()] * total_attempts):
+            articles, errors = rss_fetcher.fetch_arxiv_history()
+        self.assertEqual(articles, [])
+        self.assertEqual(len(errors), len(rss_fetcher.ARXIV_HISTORY_QUERIES))
+
+    def test_arxiv_backfill_persistent_429_records_error(self):
+        """429s across every attempt surface as a counted error, not a silent empty result."""
+        rate = MagicMock()
+        rate.status_code = 429
+        rate.headers = {"Retry-After": "3"}
+        rate.raise_for_status = lambda: (_ for _ in ()).throw(rss_fetcher.requests.HTTPError())
+        now = datetime(2026, 9, 23, tzinfo=timezone.utc)
+        total_attempts = (rss_fetcher.FETCH_RETRIES + 1) * len(rss_fetcher.ARXIV_HISTORY_QUERIES)
+        with patch.object(rss_fetcher, "ARXIV_HISTORY_START", "2026-09-01"), \
+             patch.object(rss_fetcher, "ARXIV_HISTORY_DAYS", 0), \
+             patch.object(rss_fetcher, "_utc_now", return_value=now), \
+             patch.object(rss_fetcher.time, "sleep", lambda *_: None), \
+             patch.object(rss_fetcher.requests, "get", side_effect=[rate] * total_attempts):
+            articles, errors = rss_fetcher.fetch_arxiv_history()
+        self.assertEqual(articles, [])
+        self.assertEqual(len(errors), len(rss_fetcher.ARXIV_HISTORY_QUERIES))
+
 
 class TestLlmScorer(unittest.TestCase):
     def test_categories_defined(self):
@@ -226,6 +314,14 @@ class TestLlmScorer(unittest.TestCase):
     def test_normalize_value_km_capped(self):
         self.assertEqual(llm_scorer.normalize_value(30000, "km"), 100.0)
         self.assertEqual(llm_scorer.normalize_value(5000, "km"), 25.0)
+
+    def test_normalize_value_rejects_nonfinite(self):
+        """NaN/Infinity must never poison rank keys or is_new comparisons."""
+        self.assertEqual(llm_scorer.normalize_value(float("nan"), "km"), 0.0)
+        self.assertEqual(llm_scorer.normalize_value(float("inf"), "km"), 0.0)
+        self.assertEqual(llm_scorer.normalize_value("-inf", ""), 0.0)
+        self.assertEqual(llm_scorer.normalize_value("1e400", ""), 0.0)
+        self.assertEqual(llm_scorer.normalize_value(0e400, "Wh/kg"), 0.0)
 
     def test_rank_milestone_record(self):
         a = {"is_record": True, "value": 100, "unit": "km"}
