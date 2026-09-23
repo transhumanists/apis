@@ -523,6 +523,21 @@ def _stable_id(m: dict[str, Any]) -> str:
     ).hexdigest()[:12]
 
 
+def milestone_sort_key(milestone: dict[str, Any]) -> tuple[float, float]:
+    """Chronological-first ordering key for a category's milestone list.
+
+    Newest milestones lead; older (e.g. arXiv-backfilled) records settle further
+    down the list at their historical position instead of floating by rank.
+    Rank breaks ties so equal-dated records still order deterministically.
+    """
+    date_str = milestone.get("date") or ""
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_str):
+        parsed = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    else:
+        parsed = datetime(1970, 1, 1, tzinfo=timezone.utc)
+    return (parsed.timestamp(), rank_milestone(milestone))
+
+
 def rank_milestone(milestone: dict[str, Any]) -> float:
     score = 0.0
     if milestone.get("is_record"):
@@ -819,7 +834,9 @@ def main() -> None:
                 })
 
     for cat_name in output_categories:
-        output_categories[cat_name]["milestones"].sort(key=lambda m: -rank_milestone(m))
+        # Newest-first chronological per category; backfilled older milestones
+        # therefore appear further down the list at their true historical slot.
+        output_categories[cat_name]["milestones"].sort(key=milestone_sort_key, reverse=True)
 
     now = _utc_now()
     output = {
