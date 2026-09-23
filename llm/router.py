@@ -12,11 +12,15 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import time
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from atomicio import atomic_write
 
 log = logging.getLogger("router")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -116,8 +120,7 @@ class FreeModelsRouter:
 
     def _save_state(self) -> None:
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._state_path, "w", encoding="utf-8") as f:
-            json.dump(asdict(self.state), f, indent=2)
+        atomic_write(self._state_path, json.dumps(asdict(self.state), indent=2))
 
     def _maybe_save_state(self) -> None:
         """Persist state at most every STATE_SAVE_EVERY requests."""

@@ -20,6 +20,9 @@ from typing import Any
 
 import requests
 
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
+from atomicio import atomic_write
+
 try:
     from openai import OpenAI as _OpenAI_class
     OpenAI: Any = _OpenAI_class
@@ -876,16 +879,16 @@ def main() -> None:
     }
 
     OUT_MILESTONES.parent.mkdir(parents=True, exist_ok=True)
-    OUT_MILESTONES.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
-    OUT_EVENTS.write_text(json.dumps(events_out, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write(OUT_MILESTONES, json.dumps(output, indent=2, ensure_ascii=False))
+    atomic_write(OUT_EVENTS, json.dumps(events_out, indent=2, ensure_ascii=False))
 
     md_content = generate_milestones_md(output_categories)
-    OUT_MD.write_text(md_content, encoding="utf-8")
+    atomic_write(OUT_MD, md_content)
 
     # Persist the merged dataset so a later local/dry run retains it even if
     # the upstream fetch of milestones_existing.json is unavailable.
     try:
-        EXISTING.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
+        atomic_write(EXISTING, json.dumps(output, indent=2, ensure_ascii=False))
     except OSError as e:
         log.warning("Could not persist existing-milestones snapshot: %s", e)
 

@@ -24,8 +24,9 @@ import feedparser
 import requests
 from bs4 import BeautifulSoup
 
-# Make `apis` importable so we can use the rate_limit module
+# Make the repo root importable so we can use shared modules (rate_limit, atomicio)
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
+from atomicio import atomic_write
 from rate_limit import cache_get, cache_set, check_and_consume, record_response
 
 OUT_FILE = pathlib.Path(__file__).parent.parent / "data" / "articles.json"
@@ -543,13 +544,13 @@ def main() -> None:
         "articles": unique,
     }
 
-    OUT_FILE.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write(OUT_FILE, json.dumps(output, indent=2, ensure_ascii=False))
     log.info("Done. %d unique from %d feeds in %.1fs. Dead: %d",
              len(unique), len(FEEDS), elapsed, len(dead_feeds))
 
     if dead_feeds:
         dead_path = pathlib.Path(__file__).parent.parent / "data" / "dead_feeds.json"
-        dead_path.write_text(json.dumps(dead_feeds, indent=2), encoding="utf-8")
+        atomic_write(dead_path, json.dumps(dead_feeds, indent=2))
 
 
 if __name__ == "__main__":
