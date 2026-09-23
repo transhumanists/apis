@@ -16,6 +16,7 @@ import json
 import os
 import pathlib
 import sys
+import time
 import unittest
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
@@ -124,6 +125,56 @@ class TestRssFetcher(unittest.TestCase):
         # Truncated response will fail to parse as RSS — that's fine, no crash
         self.assertIsInstance(articles, list)
 
+    def test_arxiv_backfill_default_is_disabled(self):
+        """Deep backfill is a no-op unless explicitly enabled (zero routine cost)."""
+        with patch.object(rss_fetcher, "ARXIV_HISTORY_START", ""), \
+             patch.object(rss_fetcher, "ARXIV_HISTORY_DAYS", 0):
+            articles, errors = rss_fetcher.fetch_arxiv_history()
+        self.assertEqual(articles, [])
+        self.assertEqual(errors, [])
+
+    def test_arxiv_backfill_iterates_month_windows(self):
+        now = datetime(2026, 9, 23, tzinfo=timezone.utc)
+        with patch.object(rss_fetcher, "ARXIV_HISTORY_START", "2026-08-01"), \
+             patch.object(rss_fetcher, "ARXIV_HISTORY_DAYS", 0), \
+             patch.object(rss_fetcher, "_utc_now", return_value=now):
+            windows = rss_fetcher._iter_backfill_windows()
+        # 2026-08-01..2026-09-23 → August + September (partial) windows, both
+        # date-filtered in arXiv's submittedDate format.
+        self.assertEqual(windows[0], ("20260801000000", "20260901000000"))
+        self.assertEqual(windows[1], ("20260901000000", "20260924000000"))
+
+    def test_fetch_arxiv_history_builds_dated_articles(self):
+        """A mocked export-API page yields ground-truth dated arxiv articles."""
+        fake_entry = MagicMock()
+        fake_entry.id = "http://arxiv.org/abs/2609.12345v1"
+        fake_entry.title = "  Decoder-heavy   transformers \n 2026  "
+        fake_entry.summary = "<p>Abstract text &amp; more</p>"
+        fake_entry.published_parsed = time.strptime("2026-09-20", "%Y-%m-%d")
+
+        parsed = MagicMock()
+        parsed.entries = [fake_entry]
+
+        resp = MagicMock()
+        resp.content = b"<feed/>"
+        resp.raise_for_status = lambda: None
+
+        now = datetime(2026, 9, 23, tzinfo=timezone.utc)
+        with patch.object(rss_fetcher, "ARXIV_HISTORY_START", "2026-09-01"), \
+             patch.object(rss_fetcher, "ARXIV_HISTORY_DAYS", 0), \
+             patch.object(rss_fetcher, "_utc_now", return_value=now), \
+             patch.object(rss_fetcher.time, "sleep", lambda *_: None), \
+             patch.object(rss_fetcher.requests, "get", return_value=resp), \
+             patch.object(rss_fetcher.feedparser, "parse", return_value=parsed):
+            articles, errors = rss_fetcher.fetch_arxiv_history()
+        self.assertEqual(errors, [])
+        self.assertGreater(len(articles), 0)
+        a = articles[0]
+        self.assertEqual(a["title"], "Decoder-heavy transformers 2026")
+        self.assertEqual(a["published"], "2026-09-20")
+        self.assertEqual(a["source"], "arXiv")
+        self.assertTrue(a["arxiv_history"])
+
 
 class TestLlmScorer(unittest.TestCase):
     def test_categories_defined(self):
@@ -191,6 +242,18 @@ class TestLlmScorer(unittest.TestCase):
     def test_rank_milestone_invalid_date(self):
         m = {"is_record": False, "value": 100, "date": "not-a-date"}
         self.assertGreater(llm_scorer.rank_milestone(m), 0)
+
+    def test_milestone_sort_key_is_chronological_first(self):
+        """Backfilled older milestones sort below newer ones regardless of value."""
+        old = {"date": "2025-06-01", "value": 1000, "is_record": True}
+        newer = {"date": "2026-09-22", "value": 1, "is_record": False}
+        self.assertLess(llm_scorer.milestone_sort_key(old), llm_scorer.milestone_sort_key(newer))
+        # Undated records sort to the bottom (1970 sentinel) — never crash.
+        self.assertLess(llm_scorer.milestone_sort_key({"date": ""}), llm_scorer.milestone_sort_key(newer))
+        # Equal dates tie-break on rank so ordering stays deterministic.
+        a = {"date": "2026-09-22", "value": 50}
+        b = {"date": "2026-09-22", "value": 40}
+        self.assertGreater(llm_scorer.milestone_sort_key(a), llm_scorer.milestone_sort_key(b))
 
     def test_ensure_category_new(self):
         llm_scorer.ensure_category("Crystallography", "#ff00ff")
