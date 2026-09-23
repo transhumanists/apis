@@ -8,6 +8,7 @@ Outputs milestones.json, events.json, and Milestones.md (auto-generated from JSO
 """
 import json
 import logging
+import math
 import os
 import pathlib
 import re
@@ -494,6 +495,12 @@ def normalize_value(value: Any, unit: str | None) -> float:
     try:
         v = float(value)
     except (TypeError, ValueError):
+        return 0.0
+    # NaN/Infinity must never enter the rank pipeline: an LLM value string like
+    # "nan" or "1e400" would otherwise produce a NaN rank, and any comparison
+    # with NaN is False — silently destabilising sort order and the
+    # is_new/supersede logic in merge_with_existing.
+    if not math.isfinite(v):
         return 0.0
     if not unit:
         return v

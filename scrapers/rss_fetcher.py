@@ -56,6 +56,7 @@ ENABLE_CACHE = True  # set False to force fresh fetch
 ARXIV_EXPORT_URL = "https://export.arxiv.org/api/query"
 ARXIV_POLITE_SLEEP = 3.0  # arXiv requires >= 3s between API calls
 ARXIV_HISTORY_MAX_PER_MONTH = 15
+ARXIV_HISTORY_MAX_WINDOWS = 26  # ~2 years of monthly windows — cap a runaway config
 ARXIV_HISTORY_START = os.environ.get("ARXIV_HISTORY_START", "").strip()
 try:
     ARXIV_HISTORY_DAYS = int(os.environ.get("ARXIV_HISTORY_DAYS", "0"))
@@ -324,6 +325,22 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _parsed_backfill_start() -> datetime | None:
+    """Parse ``ARXIV_HISTORY_START``, or None (with a warning) if malformed.
+
+    The variable is repo-operator-supplied, so a typo must disable backfill
+    rather than crash the scrape job by raising in ``_iter_backfill_windows``.
+    """
+    if not ARXIV_HISTORY_START:
+        return None
+    try:
+        return datetime.strptime(ARXIV_HISTORY_START, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        log.warning("Ignoring malformed ARXIV_HISTORY_START=%r (expected YYYY-MM-DD)",
+                    ARXIV_HISTORY_START)
+        return None
+
+
 def _iter_backfill_windows() -> list[tuple[str, str]]:
     """Backfill time windows as arXiv `submittedDate` filters (``YYYYMMDDHHMMSS``).
 
@@ -334,11 +351,18 @@ def _iter_backfill_windows() -> list[tuple[str, str]]:
     today = _utc_now()
     windows: list[tuple[str, str]] = []
 
-    if ARXIV_HISTORY_START:
-        start_date = datetime.strptime(ARXIV_HISTORY_START, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    start_date = _parsed_backfill_start()
+    if start_date is not None:
         end = today + timedelta(days=1)
         month_start = datetime(start_date.year, start_date.month, 1, tzinfo=timezone.utc)
         while month_start < end:
+            if len(windows) >= ARXIV_HISTORY_MAX_WINDOWS:
+                log.warning(
+                    "Backfill window limit reached (%d windows) for start %r — "
+                    "truncating; clear ARXIV_HISTORY_START to stop re-running",
+                    ARXIV_HISTORY_MAX_WINDOWS, ARXIV_HISTORY_START,
+                )
+                break
             next_month = datetime(
                 month_start.year + (1 if month_start.month == 12 else 0),
                 1 if month_start.month == 12 else month_start.month + 1,
@@ -389,13 +413,53 @@ def fetch_arxiv_history() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
                     "sortBy": "submittedDate",
                     "sortOrder": "descending",
                 }
-                resp = requests.get(
-                    ARXIV_EXPORT_URL,
-                    params=params,
-                    headers=HEADERS,
-                    timeout=TIMEOUT,
-                )
-                resp.raise_for_status()
+                resp: requests.Response | None = None
+                # Small retry ladder (mirrors fetch_feed): transient 429s and
+                # timeouts happen under load; one retry usually clears them.
+                for attempt in range(FETCH_RETRIES + 1):
+                    try:
+                        resp = requests.get(
+                            ARXIV_EXPORT_URL,
+                            params=params,
+                            headers=HEADERS,
+                            timeout=TIMEOUT,
+                        )
+                    except requests.Timeout:
+                        log.warning("arXiv API timeout (%s, %s) attempt %d — retrying",
+                                    q["cat"], start_ts, attempt + 1)
+                        time.sleep(3 * (attempt + 1))
+                        continue
+                    try:
+                        status = int(resp.status_code)
+                    except (TypeError, ValueError):
+                        status = 200
+                    if status == 429:
+                        retry_after = getattr(resp, "headers", {}) or {}
+                        try:
+                            backoff = min(max(int(retry_after.get("Retry-After", "3")), 3), 60)
+                        except (TypeError, ValueError):
+                            backoff = 3
+                        log.warning("arXiv API 429 (%s, %s) attempt %d — backing off %ds",
+                                    q["cat"], start_ts, attempt + 1, backoff)
+                        time.sleep(backoff)
+                        continue
+                    if status >= 500 and attempt < FETCH_RETRIES:
+                        log.warning("arXiv API HTTP %d (%s, %s) attempt %d — retrying",
+                                    status, q["cat"], start_ts, attempt + 1)
+                        time.sleep(3 * (attempt + 1))
+                        continue
+                    resp.raise_for_status()
+                    break
+                if resp is None:
+                    raise requests.RequestException("arXiv API unreachable after retries")
+                # A 429/5xx persisting across every attempt must surface as a
+                # counted error, not silently yield an empty result.
+                try:
+                    final_status = int(resp.status_code)
+                except (TypeError, ValueError):
+                    final_status = 200
+                if final_status >= 400:
+                    raise requests.RequestException(f"arXiv API HTTP {final_status} after retries")
                 parsed = feedparser.parse(resp.content)
                 for entry in parsed.entries:
                     link = getattr(entry, "id", None) or ""

@@ -37,9 +37,12 @@ jobs:
 
       - name: Run RSS fetcher
         # arXiv deep backfill is opt-in via repo variables: set
-        # ARXIV_HISTORY_START (YYYY-MM-DD) for a one-time month-by-month
-        # backfill of older dated papers, or ARXIV_HISTORY_DAYS for a trailing
-        # window. Unset (default) keeps routine cost at zero.
+        # ARXIV_HISTORY_START (YYYY-MM-DD) for month-by-month backfill of older
+        # dated papers, or ARXIV_HISTORY_DAYS for a trailing window. Unset
+        # (default) keeps routine cost at zero. A variable left set re-queries
+        # the same windows on every run (idempotent at milestone merge, but it
+        # spends API/score budget), so clear it once the catch-up has converged.
+        # Windows are capped (ARXIV_HISTORY_MAX_WINDOWS) to bound job time.
         env:
           ARXIV_HISTORY_START: ${{ vars.ARXIV_HISTORY_START || '' }}
           ARXIV_HISTORY_DAYS: ${{ vars.ARXIV_HISTORY_DAYS || '0' }}
