@@ -489,9 +489,27 @@ def call_llm(title: str, summary: str) -> Any | None:
     return call_llm_anthropic(title, summary)
 
 
+_THOUSANDS_RE = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?")
+
+
+def _strip_thousands(value: str) -> str:
+    """Convert an en-US thousands-separated literal ("10,000") to plain digits.
+
+    LLMs routinely emit "10,000" even though the schema asks for a bare number;
+    without this, ``float()`` rejects it and a genuine record silently deflates
+    to 0.0 in ranking. Only the canonical ``digits(,digits{3})`` shape is
+    accepted, so European decimals ("0,5") and stray commas fail closed (→ 0.0).
+    """
+    if _THOUSANDS_RE.fullmatch(value):
+        return value.replace(",", "")
+    return value
+
+
 def normalize_value(value: Any, unit: str | None) -> float:
     if value is None:
         return 0.0
+    if isinstance(value, str):
+        value = _strip_thousands(value)
     try:
         v = float(value)
     except (TypeError, ValueError):
