@@ -6,14 +6,17 @@ For each article, calls an LLM (OpenAI or Anthropic) to extract structured miles
 Dynamically adds new categories/subcategories discovered by the LLM — no human intervention required.
 Outputs milestones.json, events.json, and Milestones.md (auto-generated from JSON).
 """
+import ipaddress
 import json
 import logging
 import os
 import pathlib
 import re
 import sys
+import tempfile
 import threading
 import time
+import urllib.parse
 from datetime import datetime, timezone
 from hashlib import sha1
 from typing import Any
@@ -145,8 +148,43 @@ def get_geocode(source: str) -> dict[str, Any]:
     return {"lat": 0.0, "lon": 0.0, "name": source or "Unknown"}
 
 
+def _validate_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except (ValueError, TypeError):
+        return None
+    if parsed.scheme not in ("http", "https"):
+        return None
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return None
+    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        return None
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    else:
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            return None
+    return url
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _atomic_write(path: pathlib.Path, content: str) -> None:
+    """Write content to path atomically using a temp file + rename."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=path.parent, delete=False
+    ) as tmp:
+        tmp.write(content)
+        tmp_path = pathlib.Path(tmp.name)
+    tmp_path.replace(path)
 
 
 SYSTEM_PROMPT = """You are a senior science & technology analyst who extracts structured milestone data from news articles.
@@ -203,6 +241,9 @@ def call_llm_openai(title: str, summary: str) -> Any | None:
                 {"role": "user", "content": f"Title: {title}\n\nSummary: {summary[:1500]}"},
             ],
         )
+        if not resp.choices or not resp.choices[0].message.content:
+            log.warning("OpenAI returned empty choices")
+            return None
         raw = (resp.choices[0].message.content or "").strip()
         raw = re.sub(r"^```json\s*", "", raw, flags=re.IGNORECASE)
         raw = re.sub(r"```\s*$", "", raw, flags=re.IGNORECASE)
@@ -210,7 +251,12 @@ def call_llm_openai(title: str, summary: str) -> Any | None:
     except json.JSONDecodeError as e:
         log.warning("LLM returned malformed JSON: %s — %s", e, raw[:200])
         return None
-    except (requests.RequestException, ValueError, OSError) as e:
+    except (
+        requests.RequestException,
+        ValueError,
+        OSError,
+        _OPENAI_API_ERROR,
+    ) as e:
         log.warning("OpenAI call failed: %s", e)
         return None
 
@@ -229,6 +275,9 @@ def call_llm_anthropic(title: str, summary: str) -> Any | None:
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": f"Title: {title}\n\nSummary: {summary[:1500]}"}],
         )
+        if not resp.content or not resp.content[0].text:
+            log.warning("Anthropic returned empty content")
+            return None
         text = resp.content[0].text.strip()
         text = re.sub(r"^```json\s*", "", text, flags=re.IGNORECASE)
         text = re.sub(r"```\s*$", "", text, flags=re.IGNORECASE)
@@ -236,15 +285,29 @@ def call_llm_anthropic(title: str, summary: str) -> Any | None:
     except json.JSONDecodeError as e:
         log.warning("Anthropic returned malformed JSON: %s", e)
         return None
-    except (requests.RequestException, ValueError, OSError) as e:
+    except (
+        requests.RequestException,
+        ValueError,
+        OSError,
+        _ANTHROPIC_API_ERROR,
+    ) as e:
         log.warning("Anthropic call failed: %s", e)
         return None
 
 
 _OPENAI_CLIENT_SINGLETON: Any = None
-_OPENAI_CLIENT_INIT_ERROR: Exception | None = None
+_OPENAI_CLIENT_INIT_ERROR: BaseException | None = None
 _ANTHROPIC_CLIENT_SINGLETON: Any = None
-_ANTHROPIC_CLIENT_INIT_ERROR: Exception | None = None
+_ANTHROPIC_CLIENT_INIT_ERROR: BaseException | None = None
+
+# SDK-specific exception classes are only defined when the lib is installed.
+# Resolve to a safe fallback so callers don't need to guard everywhere.
+_OPENAI_API_ERROR: type[BaseException] = (
+    getattr(OpenAI, "APIError", OSError) if OpenAI is not None else OSError
+)
+_ANTHROPIC_API_ERROR: type[BaseException] = (
+    getattr(anthropic, "APIError", OSError) if anthropic is not None else OSError
+)
 
 
 def _get_openai_client() -> Any:
@@ -257,7 +320,7 @@ def _get_openai_client() -> Any:
     try:
         _OPENAI_CLIENT_SINGLETON = OpenAI(api_key=OPENAI_API_KEY)
         return _OPENAI_CLIENT_SINGLETON
-    except (requests.RequestException, ValueError, TypeError, OSError) as e:
+    except (requests.RequestException, ValueError, TypeError, OSError, _OPENAI_API_ERROR) as e:
         _OPENAI_CLIENT_INIT_ERROR = e
         log.warning("OpenAI client init failed: %s", e)
         return None
@@ -273,7 +336,7 @@ def _get_anthropic_client() -> Any:
     try:
         _ANTHROPIC_CLIENT_SINGLETON = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         return _ANTHROPIC_CLIENT_SINGLETON
-    except (requests.RequestException, ValueError, TypeError, OSError) as e:
+    except (requests.RequestException, ValueError, TypeError, OSError, _ANTHROPIC_API_ERROR) as e:
         _ANTHROPIC_CLIENT_INIT_ERROR = e
         log.warning("Anthropic client init failed: %s", e)
         return None
@@ -386,6 +449,10 @@ def call_llm_router(title: str, summary: str) -> Any | None:
         log.warning("Router returned error after %d attempts: %s", result.attempts, result.error)
         return None
 
+    if not result.content:
+        log.warning("Router returned empty content")
+        return None
+
     raw = result.content.strip()
     raw = re.sub(r"^```json\s*", "", raw, flags=re.IGNORECASE)
     raw = re.sub(r"```\s*$", "", raw, flags=re.IGNORECASE)
@@ -421,7 +488,8 @@ def normalize_value(value: Any, unit: str | None) -> float:
     u = unit.lower()
     if "%" in u:
         return v
-    if "q" in u and "=" not in u and len(u) <= 2:
+    # Explicitly handle known dimensionless units to avoid fragile substring matching
+    if u in ("q", "q-factor", "q factor", "q_gain"):
         return v
     if "mach" in u or "speed" in u:
         return v * 5
@@ -480,8 +548,10 @@ def ensure_subcategory(category: str, subcategory: str) -> None:
 
 def score_article(article: dict[str, Any]) -> dict[str, Any] | None:
     if not LLM_ROUTER_ENABLED and not (OPENAI_API_KEY or ANTHROPIC_API_KEY):
-        log.error("No LLM API key set — set OPENAI_API_KEY or ANTHROPIC_API_KEY (or enable LLM_ROUTER_ENABLED=true with at least one free provider key)")
-        sys.exit(1)
+        raise RuntimeError(
+            "No LLM API key set — set OPENAI_API_KEY or ANTHROPIC_API_KEY "
+            "(or enable LLM_ROUTER_ENABLED=true with at least one free provider key)"
+        )
 
     title = article.get("title", "")
     summary = article.get("summary", "")
@@ -508,6 +578,7 @@ def score_article(article: dict[str, Any]) -> dict[str, Any] | None:
     source = result.get("source") or article.get("source", "Unknown")
     date = result.get("date") or article.get("published") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     geo = get_geocode(source)
+    url = _validate_url(article.get("url"))
 
     safe_cat = category or "Unknown"
     safe_sub = subcategory or "general"
@@ -523,7 +594,7 @@ def score_article(article: dict[str, Any]) -> dict[str, Any] | None:
         "unit": result.get("unit"),
         "source": source,
         "date": date,
-        "url": article.get("url"),
+        "url": url,
         "is_record": result.get("is_record", False),
         "is_breakthrough": result.get("is_breakthrough", False),
         "is_new": True,
@@ -603,6 +674,11 @@ def main() -> None:
         sys.exit(1)
 
     articles = raw.get("articles", []) if isinstance(raw, dict) else raw
+    if not isinstance(articles, list):
+        log.error("articles.json must contain a list or {'articles': [...]}")
+        sys.exit(1)
+    # Filter out non-dict items
+    articles = [a for a in articles if isinstance(a, dict)]
     log.info("Loaded %d articles", len(articles))
 
     existing_by_subcat: dict[str, Any] = {}
@@ -615,7 +691,10 @@ def main() -> None:
         except (OSError, ValueError, json.JSONDecodeError) as e:
             log.warning("Could not load existing milestones: %s", e)
 
-    articles_sorted = sorted(articles, key=lambda a: -a.get("weight", 0))
+    articles_sorted = sorted(
+        articles,
+        key=lambda a: -float(a.get("weight", 0) or 0),
+    )
     to_score = articles_sorted[:MAX_ARTICLES_TO_SCORE]
     log.info("Scoring top %d articles (router=%s)", len(to_score), LLM_ROUTER_ENABLED)
 
@@ -679,12 +758,11 @@ def main() -> None:
         "events": events,
     }
 
-    OUT_MILESTONES.parent.mkdir(parents=True, exist_ok=True)
-    OUT_MILESTONES.write_text(json.dumps(output, indent=2, ensure_ascii=False))
-    OUT_EVENTS.write_text(json.dumps(events_out, indent=2, ensure_ascii=False))
+    _atomic_write(OUT_MILESTONES, json.dumps(output, indent=2, ensure_ascii=False))
+    _atomic_write(OUT_EVENTS, json.dumps(events_out, indent=2, ensure_ascii=False))
 
     md_content = generate_milestones_md(output_categories, existing_by_subcat)
-    OUT_MD.write_text(md_content)
+    _atomic_write(OUT_MD, md_content)
 
     log.info(
         "Wrote %d milestones across %d categories and %d events",

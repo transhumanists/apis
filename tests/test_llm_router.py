@@ -343,7 +343,7 @@ class TestScoreArticleRouterOnly(unittest.TestCase):
         with patch.object(self.scorer, "LLM_ROUTER_ENABLED", False):
             with patch.object(self.scorer, "OPENAI_API_KEY", ""):
                 with patch.object(self.scorer, "ANTHROPIC_API_KEY", ""):
-                    with self.assertRaises(SystemExit):
+                    with self.assertRaises(RuntimeError):
                         self.scorer.score_article({"title": "X", "summary": "y"})
 
 

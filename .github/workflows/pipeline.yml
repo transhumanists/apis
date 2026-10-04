@@ -65,7 +65,7 @@ jobs:
       - name: Download scraped data
         uses: actions/download-artifact@v4
         with:
-          name: scored-data
+          name: scraped-data
           path: data
 
       - name: Save previous milestones for delta

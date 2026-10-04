@@ -145,6 +145,83 @@ class TestLlmScorer(unittest.TestCase):
         g = llm_scorer.get_geocode("Nonsense Source")
         self.assertEqual(g["lat"], 0.0)
 
+    def test_validate_url_accepts_valid_http(self):
+        self.assertEqual(llm_scorer._validate_url("https://example.com/path"), "https://example.com/path")
+
+    def test_validate_url_accepts_valid_https(self):
+        self.assertEqual(llm_scorer._validate_url("http://example.com/path"), "http://example.com/path")
+
+    def test_validate_url_rejects_non_http_scheme(self):
+        self.assertIsNone(llm_scorer._validate_url("javascript:alert(1)"))
+        self.assertIsNone(llm_scorer._validate_url("file:///etc/passwd"))
+        self.assertIsNone(llm_scorer._validate_url("ftp://example.com/file"))
+
+    def test_validate_url_rejects_localhost(self):
+        self.assertIsNone(llm_scorer._validate_url("http://localhost:8080/path"))
+        self.assertIsNone(llm_scorer._validate_url("http://127.0.0.1:8080/path"))
+        self.assertIsNone(llm_scorer._validate_url("http://[::1]:8080/path"))
+
+    def test_validate_url_rejects_private_ip(self):
+        self.assertIsNone(llm_scorer._validate_url("http://10.0.0.1/path"))
+        self.assertIsNone(llm_scorer._validate_url("http://192.168.1.1/path"))
+        self.assertIsNone(llm_scorer._validate_url("http://172.16.0.1/path"))
+
+    def test_validate_url_rejects_link_local(self):
+        self.assertIsNone(llm_scorer._validate_url("http://169.254.1.1/path"))
+
+    def test_score_article_raises_runtimeerror_without_api_key(self):
+        with patch.object(llm_scorer, "LLM_ROUTER_ENABLED", False), \
+             patch.object(llm_scorer, "OPENAI_API_KEY", ""), \
+             patch.object(llm_scorer, "ANTHROPIC_API_KEY", ""):
+            with self.assertRaises(RuntimeError):
+                llm_scorer.score_article({"title": "Test", "summary": "Test"})
+
+    def test_score_article_validates_url(self):
+        mock_result = {
+            "is_milestone": True,
+            "category": "Quantum Physics",
+            "subcategory": "qubit_count",
+            "title": "IBM 4,158-qubit Condor 2",
+            "value": 4158,
+            "unit": "qubits",
+            "source": "IBM",
+            "date": "2026-08-22",
+            "is_record": True,
+            "is_breakthrough": True,
+            "summary": "IBM unveils Condor 2 with 4,158 qubits.",
+        }
+        article = {
+            "title": "New 4,158-qubit chip",
+            "summary": "IBM breaks record with 4,158 qubits",
+            "url": "javascript:alert(1)",
+        }
+        with patch.object(llm_scorer, "call_llm", return_value=mock_result):
+            m = llm_scorer.score_article(article)
+        self.assertEqual(m["url"], None)
+
+    def test_score_article_validates_url_private_ip(self):
+        mock_result = {
+            "is_milestone": True,
+            "category": "Quantum Physics",
+            "subcategory": "qubit_count",
+            "title": "IBM 4,158-qubit Condor 2",
+            "value": 4158,
+            "unit": "qubits",
+            "source": "IBM",
+            "date": "2026-08-22",
+            "is_record": True,
+            "is_breakthrough": True,
+            "summary": "IBM unveils Condor 2 with 4,158 qubits.",
+        }
+        article = {
+            "title": "New 4,158-qubit chip",
+            "summary": "IBM breaks record with 4,158 qubits",
+            "url": "http://127.0.0.1:8080/path",
+        }
+        with patch.object(llm_scorer, "call_llm", return_value=mock_result):
+            m = llm_scorer.score_article(article)
+        self.assertEqual(m["url"], None)
+
     def test_normalize_value_none(self):
         self.assertEqual(llm_scorer.normalize_value(None, "km"), 0.0)
 
@@ -160,6 +237,11 @@ class TestLlmScorer(unittest.TestCase):
     def test_normalize_value_km_capped(self):
         self.assertEqual(llm_scorer.normalize_value(30000, "km"), 100.0)
         self.assertEqual(llm_scorer.normalize_value(5000, "km"), 25.0)
+
+    def test_normalize_value_q_factor(self):
+        self.assertEqual(llm_scorer.normalize_value(1.5, "Q"), 1.5)
+        self.assertEqual(llm_scorer.normalize_value(2.0, "q"), 2.0)
+        self.assertEqual(llm_scorer.normalize_value(1.5, "Q-factor"), 1.5)
 
     def test_rank_milestone_record(self):
         a = {"is_record": True, "value": 100, "unit": "km"}

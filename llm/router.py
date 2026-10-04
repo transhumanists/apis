@@ -360,6 +360,10 @@ class FreeModelsRouter:
                 return result["choices"][0]["message"]["content"]
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", errors="replace")
+            # Auth failures (401/403) are not retryable — fail fast so the caller
+            # can fall back to the next model in the cascade without wasting attempts.
+            if e.code in (401, 403):
+                raise RuntimeError(f"Auth failed (HTTP {e.code}): {body[:200]}") from e
             raise RuntimeError(f"HTTP {e.code}: {body[:200]}") from e
         except urllib.error.URLError as e:
             raise RuntimeError(f"Network error: {e.reason}") from e
