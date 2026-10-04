@@ -18,13 +18,15 @@ Design:
 - Thread-safe via simple lock (we never expect multi-thread writers)
 """
 import json
-import os
+import logging
 import threading
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+
+log = logging.getLogger("rate_limit")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 ROOT = Path(__file__).parent
 STATE_FILE = ROOT / "data" / "rate_limit_state.json"
@@ -73,7 +75,10 @@ class RateLimitResult:
 
 @dataclass
 class _State:
-    platforms: dict = field(default_factory=dict)  # {platform: {minute_window_start, used_minute, day_date, used_day, last_reset, total_calls, total_429, total_5xx, last_error_at, next_allowed_after}}
+    # Per-platform state fields:
+    # minute_window_start, used_minute, day_date, used_day, last_reset,
+    # total_calls, total_429, total_5xx, last_error_at, next_allowed_after
+    platforms: dict = field(default_factory=dict)
 
 _lock = threading.Lock()
 
@@ -82,11 +87,25 @@ def _ensure_state() -> _State:
     if not STATE_FILE.exists():
         return _State()
     try:
-        d = json.loads(STATE_FILE.read_text())
+        d = json.loads(STATE_FILE.read_text(encoding="utf-8"))
         s = _State()
         s.platforms = d.get("platforms", {})
         return s
-    except (json.JSONDecodeError, KeyError):
+    except (json.JSONDecodeError, KeyError) as e:
+        # Preserve the corrupt file so the user can recover counters manually.
+        # If we silently reset, an interrupted write would lose the entire budget history.
+        try:
+            backup = STATE_FILE.with_suffix(
+                f".corrupt-{int(time.time())}.json"
+            )
+            backup.write_bytes(STATE_FILE.read_bytes())
+            log.warning(
+                "Corrupt state file at %s — backed up to %s and resetting: %s",
+                STATE_FILE, backup.name, e,
+            )
+        except OSError as be:
+            log.warning("Corrupt state file at %s (resetting): %s [backup failed: %s]",
+                        STATE_FILE, e, be)
         return _State()
 
 
@@ -198,7 +217,7 @@ def check_and_consume(platform: str) -> RateLimitResult:
         )
 
 
-def record_response(platform: str, status: int, error: str = "") -> None:
+def record_response(platform: str, status: int, error: str = "") -> None:  # noqa: ARG001
     """Update backoff window based on platform response.
 
     429 -> set next_allowed_after = now + backoff
@@ -223,7 +242,7 @@ def record_response(platform: str, status: int, error: str = "") -> None:
         _save_state(state)
 
 
-def get_status(platform: Optional[str] = None) -> dict:
+def get_status(platform: str | None = None) -> dict:
     """Get current usage. For dashboards / debugging."""
     with _lock:
         state = _ensure_state()
@@ -248,7 +267,7 @@ def get_status(platform: Optional[str] = None) -> dict:
         return out
 
 
-def reset(platform: Optional[str] = None) -> None:
+def reset(platform: str | None = None) -> None:
     """Reset counters. Used by tests."""
     with _lock:
         state = _ensure_state()
@@ -283,7 +302,7 @@ def wait_for_slot(platform: str, max_wait: int = 300) -> bool:
 CACHE_DIR = ROOT / "data" / "rate_limit_cache"
 
 
-def cache_get(key: str, max_age_seconds: int) -> Optional[dict]:
+def cache_get(key: str, max_age_seconds: int) -> dict | None:
     """Return cached value if fresh, else None."""
     if max_age_seconds <= 0:
         return None
@@ -291,7 +310,7 @@ def cache_get(key: str, max_age_seconds: int) -> Optional[dict]:
     if not p.exists():
         return None
     try:
-        meta = json.loads(p.read_text())
+        meta = json.loads(p.read_text(encoding="utf-8"))
         if int(time.time()) - meta.get("_cached_at", 0) > max_age_seconds:
             return None
         return meta.get("value")
@@ -302,7 +321,9 @@ def cache_get(key: str, max_age_seconds: int) -> Optional[dict]:
 def cache_set(key: str, value: dict) -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     p = CACHE_DIR / f"{key}.json"
-    p.write_text(json.dumps({"_cached_at": int(time.time()), "value": value}))
+    tmp = CACHE_DIR / f"{key}.json.tmp"
+    tmp.write_text(json.dumps({"_cached_at": int(time.time()), "value": value}))
+    tmp.replace(p)
 
 
 def cache_invalidate(key: str) -> None:

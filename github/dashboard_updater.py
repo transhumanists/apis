@@ -6,9 +6,14 @@ Reads processed milestone/event/activity data and commits it to:
   - transhumanists/transhumanists.github.io (data/)
 Uses the GitHub Contents API to avoid git conflicts.
 """
-import json, os, sys, pathlib, logging, base64, time
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+import base64
+import json
+import logging
+import os
+import pathlib
+import sys
+import time
+from datetime import datetime, timedelta, timezone
 
 try:
     import requests
@@ -18,7 +23,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("dashboard_updater")
 
-TOKEN = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN", "")
+TOKEN = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
 REPOS = [
     ("transhumanists", "milestones"),
     ("transhumanists", "transhumanists.github.io"),
@@ -41,12 +46,14 @@ def _utc_now() -> str:
 
 
 def _retry_request(method: str, url: str, **kwargs) -> requests.Response:
+    last_resp: requests.Response | None = None
     last_err = ""
     for attempt in range(MAX_RETRIES):
         try:
             resp = requests.request(method, url, timeout=kwargs.pop("timeout", 20), **kwargs)
             if resp.status_code < 500:
                 return resp
+            last_resp = resp
             last_err = f"HTTP {resp.status_code}"
             log.warning("Transient error %s (attempt %d/%d): %s", url, attempt + 1, MAX_RETRIES, last_err)
         except requests.RequestException as e:
@@ -54,22 +61,57 @@ def _retry_request(method: str, url: str, **kwargs) -> requests.Response:
             log.warning("Request error %s (attempt %d/%d): %s", url, attempt + 1, MAX_RETRIES, last_err)
         if attempt < MAX_RETRIES - 1:
             time.sleep(RETRY_BACKOFF ** attempt)
+    if last_resp is not None:
+        # Re-raise as HTTPError so callers can read .response.status_code
+        err = requests.HTTPError(f"Failed after {MAX_RETRIES} retries: {last_err}", response=last_resp)
+        raise err
     raise requests.RequestException(f"Failed after {MAX_RETRIES} retries: {last_err}")
 
 
-def get_file_sha(owner: str, repo: str, path: str) -> Optional[str]:
+class FileFetchError(Exception):
+    """Raised when a GitHub Contents API call fails with a non-retryable status."""
+    def __init__(self, owner: str, repo: str, path: str, status: int, message: str = ""):
+        self.owner = owner
+        self.repo = repo
+        self.path = path
+        self.status = status
+        self.message = message
+        super().__init__(f"GitHub API error {status} for {owner}/{repo}/{path}: {message}")
+
+
+def get_file_content(owner: str, repo: str, path: str) -> tuple[str | None, bytes | None]:
+    """Return (blob SHA, decoded bytes) for a file, or (None, None) if it does
+    not exist yet. Raises FileFetchError for any non-404, non-200 response."""
     try:
         r = _retry_request("GET", f"{API}/repos/{owner}/{repo}/contents/{path}",
                            headers=_headers())
         if r.status_code == 200:
-            return r.json().get("sha")
-    except Exception:
-        pass
-    return None
+            body = r.json()
+            return body.get("sha"), base64.b64decode(body.get("content", "") or "")
+        if r.status_code == 404:
+            return None, None
+        raise FileFetchError(owner, repo, path, r.status_code, r.text[:200])
+    except requests.RequestException as e:
+        resp = getattr(e, "response", None)
+        status = resp.status_code if resp is not None else 0
+        raise FileFetchError(owner, repo, path, status, str(e)) from e
+
+
+def get_file_sha(owner: str, repo: str, path: str) -> str | None:
+    """Return the blob SHA for a file, or None if it does not exist yet."""
+    sha, _ = get_file_content(owner, repo, path)
+    return sha
 
 
 def upsert_file(owner: str, repo: str, path: str, content: bytes, message: str) -> bool:
-    sha = get_file_sha(owner, repo, path)
+    try:
+        sha, existing = get_file_content(owner, repo, path)
+    except FileFetchError as e:
+        log.error("Cannot fetch SHA for %s/%s/%s — skipping update: %s", owner, repo, path, e)
+        return False
+    if existing is not None and existing == content:
+        log.info("Unchanged %s/%s/%s — no commit needed", owner, repo, path)
+        return False
     payload = {
         "message": message,
         "content": base64.b64encode(content).decode(),
@@ -87,13 +129,12 @@ def upsert_file(owner: str, repo: str, path: str, content: bytes, message: str) 
         if resp.status_code in (200, 201):
             log.info("Updated %s/%s/%s", owner, repo, path)
             return True
-        elif resp.status_code == 409:
+        if resp.status_code == 409:
             log.warning("Conflict on %s/%s/%s — skipping", owner, repo, path)
             return False
-        else:
-            log.error("Failed %s/%s/%s: HTTP %d — %s", owner, repo, path,
-                      resp.status_code, resp.text[:200])
-            return False
+        log.error("Failed %s/%s/%s: HTTP %d — %s", owner, repo, path,
+                  resp.status_code, resp.text[:200])
+        return False
     except requests.RequestException as e:
         log.error("Error upserting %s/%s/%s: %s", owner, repo, path, e)
         return False
@@ -101,7 +142,11 @@ def upsert_file(owner: str, repo: str, path: str, content: bytes, message: str) 
 
 # ---- Activity generation ----
 def generate_activity() -> dict:
-    """Generate 30-day activity from recent milestones.json."""
+    """Generate a 30-day activity series from the current milestones.json.
+
+    Falls back to an all-zero series (plus no spikes) when there is no parsed
+    milestone data - never fabricates a random-looking chart.
+    """
     ms_path = pathlib.Path(__file__).parent.parent / "data" / "milestones.json"
     days = []
     today = datetime.now(timezone.utc)
@@ -109,7 +154,7 @@ def generate_activity() -> dict:
 
     if ms_path.exists():
         try:
-            ms = json.loads(ms_path.read_text())
+            ms = json.loads(ms_path.read_text(encoding="utf-8"))
             counts: dict[str, int] = {}
             for cat_data in ms.get("categories", {}).values():
                 for m in cat_data.get("milestones", []):
@@ -125,17 +170,14 @@ def generate_activity() -> dict:
                 if d["count"] >= 15:
                     spikes.append({"date": d["date"], "count": d["count"],
                                    "reason": "Multiple milestones recorded"})
-        except Exception as e:
+        except (OSError, ValueError, json.JSONDecodeError) as e:
             log.warning("Could not parse milestones for activity: %s", e)
 
     if not days:
-        import random
-        random.seed(int(today.timestamp()) // 86400)
+        log.warning("No milestone dates found - emitting a zero activity series instead of fake data")
         for i in range(29, -1, -1):
             d = today - timedelta(days=i)
-            dow = d.weekday()
-            base = [3, 5, 8, 12, 14, 9, 6][dow]
-            days.append({"date": d.strftime("%Y-%m-%d"), "count": base + random.randint(0, 5)})
+            days.append({"date": d.strftime("%Y-%m-%d"), "count": 0})
 
     return {
         "last_update": _utc_now(),
@@ -174,15 +216,13 @@ def main():
         log.info("Updating %s/%s...", owner, repo)
         ok = 0
 
-        if ms_src.exists():
-            if upsert_file(owner, repo, "data/milestones.json",
-                           ms_src.read_bytes(), commit_msg):
-                ok += 1
+        if ms_src.exists() and upsert_file(owner, repo, "data/milestones.json",
+                                           ms_src.read_bytes(), commit_msg):
+            ok += 1
 
-        if ev_src.exists():
-            if upsert_file(owner, repo, "data/events.json",
-                           ev_src.read_bytes(), commit_msg):
-                ok += 1
+        if ev_src.exists() and upsert_file(owner, repo, "data/events.json",
+                                           ev_src.read_bytes(), commit_msg):
+            ok += 1
 
         act_bytes = json.dumps(activity, indent=2).encode()
         if upsert_file(owner, repo, "data/activity.json", act_bytes, commit_msg):

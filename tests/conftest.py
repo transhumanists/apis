@@ -1,5 +1,4 @@
 """pytest conftest: redirects rate_limit state to a temp dir for all tests."""
-import json
 import sys
 import tempfile
 from pathlib import Path
@@ -41,6 +40,7 @@ for key in list(sys.modules.keys()):
 
 # Now import the patched module
 import rate_limit as rl_module  # noqa: E402
+
 
 # Make it available as a fixture
 @pytest.fixture

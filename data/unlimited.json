@@ -1,0 +1,79 @@
+{
+  "_meta": {
+    "criteria": "Inference on your own hardware. No per-token cap. No rate limits.",
+    "updated": "2026-08-29",
+    "schema": "1.0"
+  },
+  "by_platform": {
+    "ollama": [
+      "llama3.2:1b",
+      "llama3.2:3b",
+      "llama3.3:70b",
+      "qwen2.5:0.5b",
+      "qwen2.5:7b",
+      "qwen2.5:14b",
+      "qwen2.5:32b",
+      "qwen2.5-coder:7b",
+      "qwen2.5-coder:14b",
+      "mistral:7b",
+      "mistral-nemo:12b",
+      "phi3.5:3.8b",
+      "phi4:14b",
+      "gemma2:2b",
+      "gemma2:9b",
+      "gemma2:27b",
+      "deepseek-coder-v2:16b",
+      "codellama:7b",
+      "codellama:13b",
+      "codellama:34b",
+      "llava:7b",
+      "llava:13b",
+      "nomic-embed-text",
+      "mxbai-embed-large",
+      "all-minilm",
+      "snowflake-arctic-embed"
+    ],
+    "llama.cpp": [
+      "ggml-model-q4_k_m",
+      "ggml-model-q5_k_m",
+      "ggml-model-q8_0"
+    ],
+    "vllm": [
+      "meta-llama/Llama-3.1-8B-Instruct",
+      "meta-llama/Llama-3.3-70B-Instruct",
+      "Qwen/Qwen2.5-72B-Instruct",
+      "mistralai/Mistral-7B-Instruct-v0.3",
+      "microsoft/Phi-3.5-mini-instruct"
+    ],
+    "lm_studio": [
+      "* (any GGUF model loaded locally)"
+    ]
+  },
+  "embeddings": [
+    "ollama:nomic-embed-text",
+    "ollama:mxbai-embed-large",
+    "ollama:all-minilm",
+    "ollama:snowflake-arctic-embed"
+  ],
+  "vision": [
+    "ollama:llava:7b",
+    "ollama:llava:13b",
+    "github_models:llama-3.2-11B-Vision-Instruct",
+    "google_ai:gemini-2.0-flash-exp"
+  ],
+  "audio_to_text": [
+    "groq:whisper-large-v3-turbo",
+    "groq:distil-whisper-large-v3-en"
+  ],
+  "code_specialists": [
+    "ollama:deepseek-coder-v2:16b",
+    "ollama:codellama:13b",
+    "ollama:codellama:34b",
+    "ollama:qwen2.5-coder:14b",
+    "cloudflare:@cf/qwen/qwen2.5-coder-32b-instruct",
+    "huggingface:Qwen/Qwen2.5-Coder-7B-Instruct"
+  ],
+  "total_unique": 45,
+  "public_mirror_safe": true
+}
+

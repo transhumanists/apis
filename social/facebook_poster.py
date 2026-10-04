@@ -9,16 +9,15 @@ import json
 import logging
 import os
 import pathlib
-import tempfile
+from contextlib import suppress
 from datetime import datetime, timezone
-from typing import Optional
 
 try:
     import requests
 except ImportError:
     requests = None
 
-ROOT = pathlib.Path(__file__).parent.parent.parent
+ROOT = pathlib.Path(__file__).parent.parent
 MILESTONES_JSON = ROOT / "data" / "milestones.json"
 POST_HISTORY = ROOT / "data" / "fb_post_history.json"
 GRAPH_API_URL = "https://graph.facebook.com/v19.0"
@@ -45,7 +44,7 @@ def _utc_date() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
-def get_access_token() -> tuple[Optional[str], Optional[str]]:
+def get_access_token() -> tuple[str | None, str | None]:
     page_id = os.environ.get("FB_PAGE_ID") or os.environ.get("FB_PAGE_ID_SECRET", "")
     token = os.environ.get("FB_PAGE_ACCESS_TOKEN") or os.environ.get("FB_ACCESS_TOKEN_SECRET", "")
     if not page_id or not token:
@@ -95,10 +94,9 @@ def post_to_facebook(page_id: str, token: str, message: str) -> dict:
             post_id = data["id"]
             log.info("Posted to Facebook: %s", post_id)
             return {"success": True, "post_id": post_id, "url": f"https://facebook.com/{page_id}/posts/{post_id}"}
-        else:
-            err = data.get("error", {})
-            log.error("Facebook API error %s: %s", err.get("code"), err.get("message"))
-            return {"success": False, "error": err.get("message", str(data))}
+        err = data.get("error", {})
+        log.error("Facebook API error %s: %s", err.get("code"), err.get("message"))
+        return {"success": False, "error": err.get("message", str(data))}
     except requests.RequestException as e:
         log.error("HTTP error posting to Facebook: %s", e)
         return {"success": False, "error": str(e)}
@@ -109,12 +107,12 @@ def should_post() -> bool:
     if not POST_HISTORY.exists():
         return True
     try:
-        hist = json.loads(POST_HISTORY.read_text())
+        hist = json.loads(POST_HISTORY.read_text(encoding="utf-8"))
         last = hist.get("last_post_date", "")
         if last == _utc_date():
             log.info("Already posted today (%s) — skipping.", last)
             return False
-    except Exception:
+    except (OSError, ValueError, json.JSONDecodeError):
         pass
     return True
 
@@ -122,14 +120,12 @@ def should_post() -> bool:
 def record_post(post_id: str) -> None:
     hist = {}
     if POST_HISTORY.exists():
-        try:
-            hist = json.loads(POST_HISTORY.read_text())
-        except Exception:
-            pass
+        with suppress(Exception):
+            hist = json.loads(POST_HISTORY.read_text(encoding="utf-8"))
     hist["last_post_date"] = _utc_date()
     hist["last_post_id"] = post_id
     tmp = POST_HISTORY.with_suffix(".tmp")
-    tmp.write_text(json.dumps(hist, indent=2))
+    tmp.write_text(json.dumps(hist, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(POST_HISTORY)
 
 
@@ -149,10 +145,10 @@ def main():
         raise SystemExit(1)
 
     try:
-        milestones = json.loads(MILESTONES_JSON.read_text())
+        milestones = json.loads(MILESTONES_JSON.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
         log.error("Corrupt milestones.json: %s", e)
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
     message = build_message(milestones)
 

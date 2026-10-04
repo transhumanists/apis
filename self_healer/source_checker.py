@@ -8,17 +8,23 @@ Outputs feeds_health.json.
 import json
 import logging
 import pathlib
-import re
+import random
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import feedparser
 import requests
 
 HERE = pathlib.Path(__file__).parent
 ROOT = HERE.parent
+
+# Make the repo root importable when run as a script
+# (`python self_healer/source_checker.py` puts only self_healer/ on sys.path).
+sys.path.insert(0, str(ROOT))
+from atomicio import atomic_write  # noqa: E402
+
 HEALTH_OUT = ROOT / "data" / "feeds_health.json"
 DEAD_FEEDS = ROOT / "data" / "dead_feeds.json"
 
@@ -97,30 +103,21 @@ def _utc_now() -> str:
 def check_url(url: str) -> dict:
     result = {"url": url, "status": "unknown", "http": 0, "items": 0, "checked_at": _utc_now()}
     try:
-        r = requests.head(url, headers=HEADERS, timeout=TIMEOUT, allow_redirects=True)
+        r = requests.get(url, headers=HEADERS, timeout=TIMEOUT, allow_redirects=True)
         result["http"] = r.status_code
-        if r.status_code in (200, 301, 302):
-            r = requests.get(url, headers=HEADERS, timeout=TIMEOUT, stream=False)
-            result["http"] = r.status_code
-            if r.status_code == 200:
-                parsed = feedparser.parse(r.content)
-                if parsed.entries:
-                    result["status"] = "healthy"
-                    result["items"] = len(parsed.entries)
-                    return result
-                else:
-                    result["status"] = "empty"
+        if r.status_code == 200:
+            parsed = feedparser.parse(r.content)
+            if parsed.entries:
+                result["status"] = "healthy"
+                result["items"] = len(parsed.entries)
             else:
-                result["status"] = "dead"
+                result["status"] = "empty"
         else:
             result["status"] = "dead"
     except requests.Timeout:
         result["status"] = "timeout"
     except requests.RequestException as e:
         result["status"] = "error"
-        result["error"] = str(e)
-    except Exception as e:
-        result["status"] = "exception"
         result["error"] = str(e)
     return result
 
@@ -144,12 +141,13 @@ def find_replacement(category: str, dead_url: str) -> str | None:
 def main():
     dead: list[dict] = []
     if DEAD_FEEDS.exists():
-        dead = json.loads(DEAD_FEEDS.read_text())
+        dead = json.loads(DEAD_FEEDS.read_text(encoding="utf-8"))
         log.info("Loaded %d dead feeds from previous run", len(dead))
 
     try:
         from scrapers.rss_fetcher import FEEDS
-    except Exception:
+    except Exception as e:
+        log.warning("Could not import FEEDS from scrapers.rss_fetcher: %s", e)
         FEEDS = []
 
     urls_to_check: list[dict] = []
@@ -157,7 +155,6 @@ def main():
         urls_to_check.append({"url": d["url"], "category": d.get("category", "Unknown"), "is_dead": True})
 
     if FEEDS:
-        import random
         random.seed(42)
         sample = random.sample(FEEDS, max(1, len(FEEDS) // 3))
         for f in sample:
@@ -193,12 +190,12 @@ def main():
             except Exception as e:
                 log.error("Error checking %s: %s", u["url"], e)
 
-    HEALTH_OUT.write_text(json.dumps({
+    atomic_write(HEALTH_OUT, json.dumps({
         "last_update": _utc_now(),
         "checked": len(urls_to_check),
         "results": results,
         "replaced": replaced,
-    }, indent=2, ensure_ascii=False))
+    }, indent=2, ensure_ascii=False), encoding="utf-8")
     log.info("Health check done. %d results, %d replacements suggested.",
              len(results), len(replaced))
 
