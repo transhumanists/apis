@@ -2,7 +2,9 @@ name: Pipeline (scrape → score → post → commit)
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    # One run per day: the router's free tier is OpenRouter's 50-free-
+    # requests/day allowance (account below the $10 funding threshold).
+    - cron: '0 6 * * *'
   workflow_dispatch:
   repository_dispatch:
     types: [run-scrape]
@@ -20,11 +22,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: 'pip'
@@ -34,20 +36,30 @@ jobs:
         run: pip install -r requirements.txt --quiet
 
       - name: Run RSS fetcher
+        # arXiv deep backfill is opt-in via repo variables: set
+        # ARXIV_HISTORY_START (YYYY-MM-DD) for month-by-month backfill of older
+        # dated papers, or ARXIV_HISTORY_DAYS for a trailing window. Unset
+        # (default) keeps routine cost at zero. A variable left set re-queries
+        # the same windows on every run (idempotent at milestone merge, but it
+        # spends API/score budget), so clear it once the catch-up has converged.
+        # Windows are capped (ARXIV_HISTORY_MAX_WINDOWS) to bound job time.
+        env:
+          ARXIV_HISTORY_START: ${{ vars.ARXIV_HISTORY_START || '' }}
+          ARXIV_HISTORY_DAYS: ${{ vars.ARXIV_HISTORY_DAYS || '0' }}
         run: python scrapers/rss_fetcher.py
 
       - name: Run self-healer
         run: python self_healer/source_checker.py
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: scraped-data
           path: |
             data/articles.json
             data/feeds_health.json
             data/dead_feeds.json
-          if-no-files-found: warn
+          if-no-files-found: error
 
   score:
     name: LLM scoring
@@ -55,15 +67,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
 
-      - name: Install consumer dependencies
-        run: pip install -r requirements.txt --quiet
-
       - name: Download scraped data
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: scraped-data
           path: data
@@ -95,20 +104,71 @@ jobs:
           huggingface-key: ${{ secrets.HUGGINGFACE_API_KEY }}
           nvidia-key: ${{ secrets.NVIDIA_API_KEY }}
           cohere-key: ${{ secrets.COHERE_API_KEY }}
-          data-dir: data
+          data-dir: ${{ runner.temp }}/llm-router-data
           python-version: '3.12'
           cache-pip: false
 
+      - name: Install consumer dependencies
+        # llm-action's setup-python changes the interpreter on PATH, so install
+        # with THAT python (the one that runs score_milestone.py below).
+        run: python -m pip install -r requirements.txt --quiet
+
       - name: Run scoring
+        # The router here is repo-owned (llm/router.py + data/*.json); the
+        # llm-action above only bundles its own upstream data into runner.temp
+        # and exports the provider API keys. Router candidates are gated on
+        # which of those keys are actually present.
         run: python llm/score_milestone.py
 
-      - uses: actions/upload-artifact@v4
+      - name: Guard against publishing an empty or collapsed dataset
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path("data/milestones.json")
+          try:
+              data = json.loads(path.read_text(encoding="utf-8"))
+          except Exception as exc:  # noqa: BLE001
+              print(f"::error::Cannot read milestones.json after scoring: {exc}")
+              raise SystemExit(1)
+          count = sum(len(cat.get("milestones", [])) for cat in data.get("categories", {}).values())
+
+          existing = Path("data/milestones_existing.json")
+          existing_count = 0
+          if existing.exists():
+              try:
+                  e_data = json.loads(existing.read_text(encoding="utf-8"))
+                  existing_count = sum(
+                      len(cat.get("milestones", [])) for cat in e_data.get("categories", {}).values()
+                  )
+              except Exception as exc:  # noqa: BLE001
+                  print(f"::warning::Could not inspect previous milestone count: {exc}")
+
+          if count < 1:
+              print(f"::error::Scoring produced 0 milestones ({count}). Refusing to publish an empty dataset - the milestone database would be wiped.")
+              raise SystemExit(1)
+
+          # Retention should keep the count stable; a large drop signals that
+          # the retention merge failed and would re-collapse the database
+          # (seen 2026-09-22: 37 -> 4 -> 3).
+          if existing_count > 5 and count < max(3, int(0.8 * existing_count)):
+              print(
+                  f"::error::Publishing {count} milestones would collapse the database "
+                  f"(previously {existing_count}). Refusing to publish."
+              )
+              raise SystemExit(1)
+
+          print(f"OK: publishing {count} milestones (previous: {existing_count})")
+          PY
+
+      - uses: actions/upload-artifact@v7
         with:
           name: scored-data
           path: |
             data/milestones.json
             data/events.json
             Milestones.md
+          if-no-files-found: error
 
   post-facebook:
     name: Post to Facebook
@@ -117,13 +177,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - run: pip install requests --quiet
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: scored-data
           path: data
@@ -142,16 +202,16 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: transhumanists/milestones
           token: ${{ secrets.MILESTONES_DISPATCH_TOKEN || secrets.GITHUB_TOKEN }}
           ref: main
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: scored-data
-          path: data
+          path: .
 
       - name: Commit
         env:
@@ -176,13 +236,13 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: transhumanists/transhumanists.github.io
           token: ${{ secrets.MILESTONES_DISPATCH_TOKEN || secrets.GITHUB_TOKEN }}
           ref: main
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: scored-data
           path: data

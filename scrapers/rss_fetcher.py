@@ -11,20 +11,22 @@ to stay within the free-tier budget of every host. Cached feeds (within
 import hashlib
 import json
 import logging
+import os
 import pathlib
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import suppress
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import feedparser
 import requests
 from bs4 import BeautifulSoup
 
-# Make `apis` importable so we can use the rate_limit module
+# Make the repo root importable so we can use shared modules (rate_limit, atomicio)
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
+from atomicio import atomic_write
 from rate_limit import cache_get, cache_set, check_and_consume, record_response
 
 OUT_FILE = pathlib.Path(__file__).parent.parent / "data" / "articles.json"
@@ -45,6 +47,35 @@ FETCH_RETRIES = 2
 MAX_ARTICLE_SIZE = 1024 * 1024
 MAX_ARTICLES_PER_FEED = 50
 ENABLE_CACHE = True  # set False to force fresh fetch
+
+# ---- arXiv historical backfill ------------------------------------------
+# RSS feeds only expose a feed's most recent entries, so deeper history is
+# pulled from the arXiv export API (ground-truth `submittedDate` per paper —
+# nothing is ever backdated arbitrarily). Off by default: the scheduled run is
+# untouched unless ARXIV_HISTORY_START (YYYY-MM-DD) or ARXIV_HISTORY_DAYS is
+# set, keeping routine cost at zero while enabling one-time deep backfills.
+ARXIV_EXPORT_URL = "https://export.arxiv.org/api/query"
+ARXIV_POLITE_SLEEP = 3.0  # arXiv requires >= 3s between API calls
+ARXIV_HISTORY_MAX_PER_MONTH = 15
+ARXIV_HISTORY_MAX_WINDOWS = 26  # ~2 years of monthly windows — cap a runaway config
+ARXIV_HISTORY_START = os.environ.get("ARXIV_HISTORY_START", "").strip()
+try:
+    ARXIV_HISTORY_DAYS = int(os.environ.get("ARXIV_HISTORY_DAYS", "0"))
+except ValueError:
+    ARXIV_HISTORY_DAYS = 0
+
+ARXIV_HISTORY_QUERIES: list[dict[str, Any]] = [
+    {"cat": "cs.AI", "category": "Computing & AGI", "weight": 3},
+    {"cat": "cs.LG", "category": "Computing & AGI", "weight": 3},
+    {"cat": "cs.CL", "category": "Computing & AGI", "weight": 3},
+    {"cat": "cs.CV", "category": "Computing & AGI", "weight": 2},
+    {"cat": "quant-ph", "category": "Quantum Physics", "weight": 3},
+    {"cat": "q-bio.GN", "category": "Biotechnology", "weight": 2},
+    {"cat": "eess.SY", "category": "Energy", "weight": 1},
+    {"cat": "cs.CR", "category": "Cybersecurity", "weight": 2},
+    {"cat": "physics.space-ph", "category": "Spaceflight", "weight": 2},
+    {"cat": "cs.RO", "category": "Defense", "weight": 1},
+]
 
 FEEDS: list[dict[str, Any]] = [
     {"url": "https://www.nature.com/nbt.rss", "category": "Biotechnology", "weight": 3},
@@ -290,6 +321,185 @@ def fetch_feed(feed_def: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dic
     return articles, errors
 
 
+def _utc_now() -> datetime:
+    """Time source for backfill windows (patchable in tests)."""
+    return datetime.now(timezone.utc)
+
+
+def _parsed_backfill_start() -> datetime | None:
+    """Parse ``ARXIV_HISTORY_START``, or None (with a warning) if malformed.
+
+    The variable is repo-operator-supplied, so a typo must disable backfill
+    rather than crash the scrape job by raising in ``_iter_backfill_windows``.
+    """
+    if not ARXIV_HISTORY_START:
+        return None
+    try:
+        return datetime.strptime(ARXIV_HISTORY_START, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        log.warning("Ignoring malformed ARXIV_HISTORY_START=%r (expected YYYY-MM-DD)",
+                    ARXIV_HISTORY_START)
+        return None
+
+
+def _iter_backfill_windows() -> list[tuple[str, str]]:
+    """Backfill time windows as arXiv `submittedDate` filters (``YYYYMMDDHHMMSS``).
+
+    Drives deep backfill by whole calendar months (historical ground truth);
+    a small trailing window is added for the remainder up to today. `Start`
+    must not lie in the future (the caller only enables this explicitly).
+    """
+    today = _utc_now()
+    windows: list[tuple[str, str]] = []
+
+    start_date = _parsed_backfill_start()
+    if start_date is not None and start_date > today:
+        log.warning("ARXIV_HISTORY_START=%r is in the future — backfill disabled",
+                    ARXIV_HISTORY_START)
+        start_date = None
+    if start_date is not None:
+        end = today + timedelta(days=1)
+        month_start = datetime(start_date.year, start_date.month, 1, tzinfo=timezone.utc)
+        while month_start < end:
+            if len(windows) >= ARXIV_HISTORY_MAX_WINDOWS:
+                log.warning(
+                    "Backfill window limit reached (%d windows) for start %r — "
+                    "truncating; clear ARXIV_HISTORY_START to stop re-running",
+                    ARXIV_HISTORY_MAX_WINDOWS, ARXIV_HISTORY_START,
+                )
+                break
+            next_month = datetime(
+                month_start.year + (1 if month_start.month == 12 else 0),
+                1 if month_start.month == 12 else month_start.month + 1,
+                1, tzinfo=timezone.utc,
+            )
+            window_end = min(next_month, end)
+            windows.append((
+                month_start.strftime("%Y%m%d%H%M%S"),
+                window_end.strftime("%Y%m%d%H%M%S"),
+            ))
+            month_start = next_month
+    elif ARXIV_HISTORY_DAYS > 0:
+        windows.append((
+            (today - timedelta(days=ARXIV_HISTORY_DAYS)).strftime("%Y%m%d%H%M%S"),
+            (today + timedelta(days=1)).strftime("%Y%m%d%H%M%S"),
+        ))
+
+    return windows
+
+
+def fetch_arxiv_history() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Fetch dated arXiv papers over the configured backfill window(s).
+
+    Returns ``(articles, errors)``. Each paper is stamped with its real arXiv
+    submission date so downstream chronological placement is ground-truth, and
+    flagged ``arxiv_history: True`` for observability.
+    """
+    windows = _iter_backfill_windows()
+    if not windows:
+        return [], []
+
+    log.info("arXiv history backfill: %d window(s) across %d query categories",
+             len(windows), len(ARXIV_HISTORY_QUERIES))
+
+    now_utc = _utc_now()
+    today_str = now_utc.strftime("%Y-%m-%d")
+    now_iso = now_utc.isoformat().replace("+00:00", "Z")
+    articles: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+
+    for start_ts, end_ts in windows:
+        for q in ARXIV_HISTORY_QUERIES:
+            try:
+                params: dict[str, str | int] = {
+                    "search_query": f"cat:{q['cat']} AND submittedDate:[{start_ts} TO {end_ts}]",
+                    "start": 0,
+                    "max_results": ARXIV_HISTORY_MAX_PER_MONTH,
+                    "sortBy": "submittedDate",
+                    "sortOrder": "descending",
+                }
+                resp: requests.Response | None = None
+                # Small retry ladder (mirrors fetch_feed): transient 429s and
+                # timeouts happen under load; one retry usually clears them.
+                for attempt in range(FETCH_RETRIES + 1):
+                    try:
+                        resp = requests.get(
+                            ARXIV_EXPORT_URL,
+                            params=params,
+                            headers=HEADERS,
+                            timeout=TIMEOUT,
+                        )
+                    except requests.Timeout:
+                        log.warning("arXiv API timeout (%s, %s) attempt %d — retrying",
+                                    q["cat"], start_ts, attempt + 1)
+                        time.sleep(3 * (attempt + 1))
+                        continue
+                    try:
+                        status = int(resp.status_code)
+                    except (TypeError, ValueError):
+                        status = 200
+                    if status == 429:
+                        retry_after = getattr(resp, "headers", {}) or {}
+                        try:
+                            backoff = min(max(int(retry_after.get("Retry-After", "3")), 3), 60)
+                        except (TypeError, ValueError):
+                            backoff = 3
+                        log.warning("arXiv API 429 (%s, %s) attempt %d — backing off %ds",
+                                    q["cat"], start_ts, attempt + 1, backoff)
+                        time.sleep(backoff)
+                        continue
+                    if status >= 500 and attempt < FETCH_RETRIES:
+                        log.warning("arXiv API HTTP %d (%s, %s) attempt %d — retrying",
+                                    status, q["cat"], start_ts, attempt + 1)
+                        time.sleep(3 * (attempt + 1))
+                        continue
+                    resp.raise_for_status()
+                    break
+                if resp is None:
+                    raise requests.RequestException("arXiv API unreachable after retries")
+                # A 429/5xx persisting across every attempt must surface as a
+                # counted error, not silently yield an empty result.
+                try:
+                    final_status = int(resp.status_code)
+                except (TypeError, ValueError):
+                    final_status = 200
+                if final_status >= 400:
+                    raise requests.RequestException(f"arXiv API HTTP {final_status} after retries")
+                parsed = feedparser.parse(resp.content)
+                for entry in parsed.entries:
+                    link = getattr(entry, "id", None) or ""
+                    if not link:
+                        continue
+                    title = " ".join((getattr(entry, "title", "") or "").split())
+                    raw_summary = getattr(entry, "summary", "") or ""
+                    summary_text = BeautifulSoup(raw_summary, "lxml").get_text(separator=" ", strip=True)[:1200]
+                    published = ""
+                    pp = getattr(entry, "published_parsed", None)
+                    if pp:
+                        with suppress(Exception):
+                            published = time.strftime("%Y-%m-%d", pp)
+                    articles.append({
+                        "id": hashlib.sha256(link.encode()).hexdigest()[:16],
+                        "title": title or "[no title]",
+                        "summary": summary_text,
+                        "url": link,
+                        "source": "arXiv",
+                        "category": q["category"],
+                        "weight": q["weight"],
+                        "published": published or today_str,
+                        "fetched_at": now_iso,
+                        "arxiv_history": True,
+                    })
+            except (requests.RequestException, ValueError, KeyError) as e:
+                log.warning("arXiv history query failed (%s, %s): %s", q["cat"], start_ts, e)
+                errors.append({"url": ARXIV_EXPORT_URL, "error": str(e), "status": "error"})
+            time.sleep(ARXIV_POLITE_SLEEP)
+
+    log.info("arXiv history backfill complete: %d article(s), %d error(s)",
+             len(articles), len(errors))
+    return articles, errors
+
+
 def main() -> None:
     log.info("Starting RSS fetch — %d feeds across %d categories",
              len(FEEDS), len({f["category"] for f in FEEDS}))
@@ -312,6 +522,12 @@ def main() -> None:
 
     elapsed = time.time() - start
 
+    # Optional arXiv historical backfill (off unless explicitly enabled).
+    if ARXIV_HISTORY_START or ARXIV_HISTORY_DAYS > 0:
+        hist_articles, hist_errors = fetch_arxiv_history()
+        all_articles.extend(hist_articles)
+        dead_feeds.extend(hist_errors)
+
     seen: dict[str, dict[str, Any]] = {}
     for a in all_articles:
         if a["id"] not in seen:
@@ -328,13 +544,13 @@ def main() -> None:
         "articles": unique,
     }
 
-    OUT_FILE.write_text(json.dumps(output, indent=2, ensure_ascii=False))
+    atomic_write(OUT_FILE, json.dumps(output, indent=2, ensure_ascii=False))
     log.info("Done. %d unique from %d feeds in %.1fs. Dead: %d",
              len(unique), len(FEEDS), elapsed, len(dead_feeds))
 
     if dead_feeds:
         dead_path = pathlib.Path(__file__).parent.parent / "data" / "dead_feeds.json"
-        dead_path.write_text(json.dumps(dead_feeds, indent=2))
+        atomic_write(dead_path, json.dumps(dead_feeds, indent=2))
 
 
 if __name__ == "__main__":

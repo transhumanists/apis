@@ -87,7 +87,7 @@ def _ensure_state() -> _State:
     if not STATE_FILE.exists():
         return _State()
     try:
-        d = json.loads(STATE_FILE.read_text())
+        d = json.loads(STATE_FILE.read_text(encoding="utf-8"))
         s = _State()
         s.platforms = d.get("platforms", {})
         return s
@@ -310,7 +310,7 @@ def cache_get(key: str, max_age_seconds: int) -> dict | None:
     if not p.exists():
         return None
     try:
-        meta = json.loads(p.read_text())
+        meta = json.loads(p.read_text(encoding="utf-8"))
         if int(time.time()) - meta.get("_cached_at", 0) > max_age_seconds:
             return None
         return meta.get("value")

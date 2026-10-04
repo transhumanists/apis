@@ -9,6 +9,7 @@ import json
 import logging
 import pathlib
 import random
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -18,6 +19,12 @@ import requests
 
 HERE = pathlib.Path(__file__).parent
 ROOT = HERE.parent
+
+# Make the repo root importable when run as a script
+# (`python self_healer/source_checker.py` puts only self_healer/ on sys.path).
+sys.path.insert(0, str(ROOT))
+from atomicio import atomic_write  # noqa: E402
+
 HEALTH_OUT = ROOT / "data" / "feeds_health.json"
 DEAD_FEEDS = ROOT / "data" / "dead_feeds.json"
 
@@ -134,12 +141,13 @@ def find_replacement(category: str, dead_url: str) -> str | None:
 def main():
     dead: list[dict] = []
     if DEAD_FEEDS.exists():
-        dead = json.loads(DEAD_FEEDS.read_text())
+        dead = json.loads(DEAD_FEEDS.read_text(encoding="utf-8"))
         log.info("Loaded %d dead feeds from previous run", len(dead))
 
     try:
         from scrapers.rss_fetcher import FEEDS
-    except Exception:
+    except Exception as e:
+        log.warning("Could not import FEEDS from scrapers.rss_fetcher: %s", e)
         FEEDS = []
 
     urls_to_check: list[dict] = []
@@ -182,12 +190,12 @@ def main():
             except Exception as e:
                 log.error("Error checking %s: %s", u["url"], e)
 
-    HEALTH_OUT.write_text(json.dumps({
+    atomic_write(HEALTH_OUT, json.dumps({
         "last_update": _utc_now(),
         "checked": len(urls_to_check),
         "results": results,
         "replaced": replaced,
-    }, indent=2, ensure_ascii=False))
+    }, indent=2, ensure_ascii=False), encoding="utf-8")
     log.info("Health check done. %d results, %d replacements suggested.",
              len(results), len(replaced))
 

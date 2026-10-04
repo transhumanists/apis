@@ -12,11 +12,15 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import time
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from atomicio import atomic_write
 
 log = logging.getLogger("router")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -71,6 +75,10 @@ class FreeModelsRouter:
     CASCADE_RETRIES = 3
     HEALTH_GATE_MS = 3000
     VERIFY_DAYS = 7
+    # Persist router_state.json at most every N requests. Writing the whole
+    # state file on every chat() call adds ~N disk writes per pipeline run
+    # with no benefit - the state is only read again by the next run.
+    STATE_SAVE_EVERY = 5
 
     def __init__(
         self,
@@ -112,8 +120,18 @@ class FreeModelsRouter:
 
     def _save_state(self) -> None:
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._state_path, "w", encoding="utf-8") as f:
-            json.dump(asdict(self.state), f, indent=2)
+        atomic_write(self._state_path, json.dumps(asdict(self.state), indent=2))
+
+    def _maybe_save_state(self) -> None:
+        """Persist state at most every STATE_SAVE_EVERY requests."""
+        if self.state.total_requests % self.STATE_SAVE_EVERY == 0:
+            self._save_state()
+
+    def flush_state(self) -> None:
+        """Persist state immediately. Called at the end of a batch run so the
+        final counters/quota usage survive even if the last save did not land
+        on a STATE_SAVE_EVERY boundary."""
+        self._save_state()
 
     # ── Candidate generation ─────────────────────────────────────────────────
 
@@ -150,6 +168,10 @@ class FreeModelsRouter:
         if tier == "free":
             flat = []
             for provider_id, prov in self.providers.items():
+                env_key = (prov or {}).get("env_key", "")
+                if env_key and not os.environ.get(env_key, ""):
+                    log.debug("Skipping %s: %s not configured", provider_id, env_key)
+                    continue
                 for model_id in prov.get("free_models", []):
                     key = f"{provider_id}:{model_id}"
                     if key in self.models:
@@ -288,7 +310,7 @@ class FreeModelsRouter:
                     self.state.free_requests_used += 1
                 else:
                     self.state.paid_requests_used += 1
-                self._save_state()
+                self._maybe_save_state()
                 return ChatResult(
                     content=content,
                     model=choice.model,
