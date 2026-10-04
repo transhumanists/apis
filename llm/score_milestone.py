@@ -16,6 +16,7 @@ import re
 import sys
 import tempfile
 import threading
+import urllib.parse
 from datetime import datetime, timezone
 from hashlib import sha1
 from typing import Any
@@ -722,7 +723,7 @@ def score_article(article: dict[str, Any]) -> dict[str, Any] | None:
         "unit": result.get("unit"),
         "source": source,
         "date": date,
-        "url": url,
+        "url": _validate_url(article.get("url")),
         "is_record": result.get("is_record", False),
         "is_breakthrough": result.get("is_breakthrough", False),
         "is_new": True,
